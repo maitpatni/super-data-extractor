@@ -8,7 +8,7 @@ const Utils = {
   mapsColumnsKey: 'sde_maps_columns',
   mapsSeenPlacesKey: 'sde_maps_seen_places',
   defaultSettings: {
-    theme: 'dark',
+    theme: 'light',
     googleMapsApiKey: '',
     linkedinApiKey: '',
     googleMapsEnabled: true,
@@ -219,6 +219,11 @@ const Utils = {
     const div = document.createElement('div');
     div.textContent = value == null ? '' : String(value);
     return div.innerHTML;
+  },
+
+  icon(name, extraClass = '') {
+    const className = extraClass ? `icon ${extraClass}` : 'icon';
+    return `<span class="${className}" aria-hidden="true">${this.escapeHtml(name)}</span>`;
   },
 
   slugify(value) {

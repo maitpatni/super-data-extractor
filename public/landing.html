@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Super Data Extractor | Extract Business Leads at Scale</title>
+  <meta name="description" content="Search Google Maps and LinkedIn, filter results, and export business leads to Excel or CSV in minutes.">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: light;
+      --font-body: 'Sora', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-heading: 'Lexend', sans-serif;
+      --bg: #f8f9ff;
+      --surface: rgba(255, 255, 255, 0.86);
+      --surface-strong: #ffffff;
+      --line: rgba(87, 103, 173, 0.14);
+      --text: #14213d;
+      --text-soft: #5a6688;
+      --accent: #4666ff;
+      --accent-2: #5ac8ff;
+      --accent-3: #12b886;
+      --shadow: 0 24px 80px rgba(65, 93, 168, 0.14);
+      --shadow-soft: 0 16px 36px rgba(65, 93, 168, 0.12);
+      --radius: 28px;
+      --radius-md: 20px;
+      --radius-sm: 14px;
+      --max-width: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(90, 200, 255, 0.26), transparent 24%),
+        radial-gradient(circle at top right, rgba(70, 102, 255, 0.2), transparent 28%),
+        linear-gradient(180deg, #f5f7ff 0%, #f8f9ff 34%, #ffffff 100%);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    .icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Material Symbols Outlined';
+      font-style: normal;
+      font-weight: 400;
+      line-height: 1;
+      font-size: 22px;
+      font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+      letter-spacing: normal;
+      white-space: nowrap;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page-shell {
+      overflow: clip;
+    }
+
+    .container {
+      width: min(calc(100% - 2rem), var(--max-width));
+      margin: 0 auto;
+    }
+
+    .section {
+      padding: 4.5rem 0;
+    }
+
+    .eyebrow,
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 2rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      background: rgba(255, 255, 255, 0.56);
+      color: var(--text-soft);
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      backdrop-filter: blur(14px);
+    }
+
+    .hero {
+      padding: 1.25rem 0 5rem;
+    }
+
+    .hero-frame {
+      position: relative;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      border-radius: calc(var(--radius) + 10px);
+      background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.82), transparent 30%),
+        linear-gradient(135deg, rgba(90, 200, 255, 0.22), rgba(70, 102, 255, 0.18) 48%, rgba(255, 255, 255, 0.92));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .hero-frame::before,
+    .hero-frame::after {
+      content: '';
+      position: absolute;
+      border-radius: 999px;
+      filter: blur(60px);
+      z-index: -1;
+    }
+
+    .hero-frame::before {
+      width: 14rem;
+      height: 14rem;
+      background: rgba(90, 200, 255, 0.4);
+      top: -4rem;
+      right: 8%;
+    }
+
+    .hero-frame::after {
+      width: 16rem;
+      height: 16rem;
+      background: rgba(70, 102, 255, 0.28);
+      bottom: -6rem;
+      left: -2rem;
+    }
+
+    .hero-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1rem 0;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .brand-mark {
+      width: 2.9rem;
+      height: 2.9rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 1rem;
+      background: linear-gradient(135deg, rgba(90, 200, 255, 0.24), rgba(70, 102, 255, 0.32));
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    .brand-orb {
+      width: 1.2rem;
+      height: 1.2rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+      box-shadow: 0 0 24px rgba(70, 102, 255, 0.35);
+    }
+
+    .brand strong,
+    h1,
+    h2,
+    h3,
+    h4 {
+      font-family: var(--font-heading);
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 1rem;
+      letter-spacing: -0.03em;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 0.15rem;
+      color: var(--text-soft);
+      font-size: 0.78rem;
+    }
+
+    .hero-links {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--text-soft);
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .hero-links a:hover,
+    .footer-links a:hover {
+      color: var(--accent);
+    }
+
+    .hero-grid {
+      display: grid;
+      gap: 2rem;
+      padding: 2rem 1.2rem 1.2rem;
+    }
+
+    .hero-copy {
+      display: grid;
+      gap: 1.3rem;
+    }
+
+    .hero-copy h1 {
+      margin: 0;
+      font-size: clamp(2.8rem, 7vw, 5rem);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+      max-width: 11ch;
+    }
+
+    .hero-copy p {
+      margin: 0;
+      max-width: 38rem;
+      color: var(--text-soft);
+      font-size: 1.02rem;
+      line-height: 1.8;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.9rem;
+      padding-top: 0.4rem;
+    }
+
+    .button {
+      min-height: 3.2rem;
+      padding: 0.85rem 1.25rem;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.65rem;
+      border: 1px solid transparent;
+      font-weight: 600;
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #ffffff;
+      box-shadow: 0 16px 28px rgba(70, 102, 255, 0.24);
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.72);
+      border-color: rgba(87, 103, 173, 0.18);
+      color: var(--text);
+    }
+
+    .hero-card {
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: var(--shadow-soft);
+      padding: 1rem;
+      backdrop-filter: blur(20px);
+    }
+
+    .dashboard-mock {
+      display: grid;
+      gap: 1rem;
+      background: linear-gradient(180deg, rgba(246, 248, 255, 0.96), rgba(255, 255, 255, 0.98));
+      border-radius: calc(var(--radius) - 6px);
+      padding: 1rem;
+      border: 1px solid rgba(87, 103, 173, 0.12);
+    }
+
+    .mock-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .mock-search {
+      flex: 1;
+      min-height: 2.9rem;
+      border-radius: 999px;
+      background: rgba(238, 242, 255, 0.96);
+      border: 1px solid rgba(87, 103, 173, 0.12);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0 1rem;
+      color: var(--text-soft);
+      font-size: 0.92rem;
+    }
+
+    .mock-user {
+      width: 2.8rem;
+      height: 2.8rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #d9e5ff, #f0f5ff);
+      border: 1px solid rgba(87, 103, 173, 0.14);
+    }
+
+    .mock-body {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 1rem;
+    }
+
+    .mock-sidebar,
+    .mock-panel,
+    .feature-card,
+    .step-card,
+    .pricing-card,
+    .footer-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .mock-sidebar {
+      padding: 0.8rem;
+      display: grid;
+      gap: 0.75rem;
+      align-content: start;
+      background: linear-gradient(180deg, rgba(250, 252, 255, 0.96), rgba(239, 244, 255, 0.9));
+    }
+
+    .mock-nav-item {
+      height: 3rem;
+      border-radius: 1rem;
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(87, 103, 173, 0.1);
+    }
+
+    .mock-nav-item.active {
+      background: linear-gradient(135deg, rgba(90, 200, 255, 0.28), rgba(70, 102, 255, 0.18));
+    }
+
+    .mock-panel {
+      padding: 1rem;
+      display: grid;
+      gap: 1rem;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 255, 0.92));
+    }
+
+    .mock-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.8rem;
+    }
+
+    .mock-stat {
+      padding: 0.9rem;
+      border-radius: 1rem;
+      background: rgba(241, 245, 255, 0.9);
+      border: 1px solid rgba(87, 103, 173, 0.1);
+    }
+
+    .mock-stat span,
+    .mock-table-head span {
+      display: block;
+      color: var(--text-soft);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .mock-stat strong {
+      display: block;
+      margin-top: 0.45rem;
+      font-family: var(--font-heading);
+      font-size: 1.4rem;
+    }
+
+    .mock-chart {
+      min-height: 10rem;
+      border-radius: 1.2rem;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.7), rgba(241, 246, 255, 0.96)),
+        linear-gradient(90deg, rgba(87, 103, 173, 0.06) 1px, transparent 1px);
+      background-size: auto, 48px 100%;
+      padding: 1rem;
+      display: flex;
+      align-items: end;
+      gap: 0.8rem;
+      border: 1px solid rgba(87, 103, 173, 0.12);
+    }
+
+    .mock-bar {
+      flex: 1;
+      border-radius: 999px 999px 0 0;
+      background: linear-gradient(180deg, rgba(90, 200, 255, 0.8), rgba(70, 102, 255, 0.9));
+    }
+
+    .mock-bar:nth-child(1) { height: 42%; }
+    .mock-bar:nth-child(2) { height: 75%; }
+    .mock-bar:nth-child(3) { height: 58%; }
+    .mock-bar:nth-child(4) { height: 88%; }
+    .mock-bar:nth-child(5) { height: 66%; }
+
+    .mock-table {
+      display: grid;
+      gap: 0.6rem;
+    }
+
+    .mock-table-head,
+    .mock-table-row {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr 1fr 0.8fr;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.85rem 0.9rem;
+      border-radius: 1rem;
+      border: 1px solid rgba(87, 103, 173, 0.1);
+    }
+
+    .mock-table-head {
+      background: rgba(241, 245, 255, 0.86);
+    }
+
+    .mock-table-row {
+      background: rgba(255, 255, 255, 0.86);
+      color: var(--text-soft);
+      font-size: 0.92rem;
+    }
+
+    .mock-pill {
+      justify-self: start;
+      min-height: 1.8rem;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      background: rgba(18, 184, 134, 0.12);
+      color: #098158;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .section-head {
+      display: grid;
+      gap: 0.75rem;
+      margin-bottom: 1.6rem;
+      text-align: center;
+    }
+
+    .section-head h2,
+    .pricing-card h3 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: -0.05em;
+    }
+
+    .section-head p,
+    .pricing-card p,
+    .footer-copy p {
+      margin: 0;
+      color: var(--text-soft);
+      line-height: 1.75;
+    }
+
+    .features-grid,
+    .steps-grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .feature-card,
+    .step-card {
+      padding: 1.4rem;
+    }
+
+    .feature-icon,
+    .step-icon,
+    .pricing-check {
+      width: 3rem;
+      height: 3rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 1rem;
+      background: linear-gradient(135deg, rgba(90, 200, 255, 0.18), rgba(70, 102, 255, 0.14));
+      color: var(--accent);
+      border: 1px solid rgba(87, 103, 173, 0.12);
+      margin-bottom: 1rem;
+    }
+
+    .feature-card h3,
+    .step-card h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1.16rem;
+      letter-spacing: -0.03em;
+    }
+
+    .feature-card p,
+    .step-card p {
+      margin: 0;
+      color: var(--text-soft);
+      line-height: 1.7;
+    }
+
+    .step-card {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .step-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 999px;
+      background: rgba(70, 102, 255, 0.1);
+      color: var(--accent);
+      font-family: var(--font-heading);
+      font-size: 0.92rem;
+      font-weight: 700;
+      margin-bottom: 0.8rem;
+    }
+
+    .pricing-wrap {
+      display: flex;
+      justify-content: center;
+    }
+
+    .pricing-card {
+      width: 100%;
+      max-width: 400px;
+      padding: 1.7rem;
+      text-align: center;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.9));
+    }
+
+    .pricing-price {
+      margin: 1rem 0 0.35rem;
+      font-family: var(--font-heading);
+      font-size: clamp(2.7rem, 7vw, 4.2rem);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+    }
+
+    .pricing-list {
+      margin: 1.4rem 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 0.8rem;
+      text-align: left;
+    }
+
+    .pricing-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    .pricing-check {
+      width: 2.2rem;
+      height: 2.2rem;
+      margin: 0;
+      flex: 0 0 2.2rem;
+    }
+
+    .pricing-note {
+      margin-top: 1rem;
+      font-size: 0.92rem;
+    }
+
+    .footer {
+      padding: 0 0 2rem;
+    }
+
+    .footer-card {
+      padding: 1.2rem;
+      display: grid;
+      gap: 1rem;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      color: var(--text-soft);
+      font-weight: 500;
+    }
+
+    .footer-meta {
+      color: var(--text-soft);
+      font-size: 0.92rem;
+    }
+
+    @media (min-width: 760px) {
+      .hero-nav {
+        padding: 1.25rem 1.25rem 0;
+      }
+
+      .hero-grid {
+        grid-template-columns: minmax(0, 1.02fr) minmax(420px, 0.98fr);
+        align-items: center;
+        padding: 2.25rem 1.25rem 1.25rem;
+      }
+
+      .features-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .steps-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .footer-card {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .section {
+        padding: 5.5rem 0;
+      }
+
+      .features-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 759px) {
+      .hero-links {
+        display: none;
+      }
+
+      .mock-body {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-sidebar {
+        grid-auto-flow: column;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .mock-stat-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mock-table-head,
+      .mock-table-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <section class="hero">
+      <div class="container">
+        <div class="hero-frame">
+          <div class="hero-nav">
+            <a class="brand" href="/landing">
+              <span class="brand-mark"><span class="brand-orb"></span></span>
+              <span>
+                <strong>SuperDataExtractor</strong>
+                <small>Maps + LinkedIn intelligence</small>
+              </span>
+            </a>
+            <div class="hero-links">
+              <a href="#features">Features</a>
+              <a href="#how-it-works">How it Works</a>
+              <a href="#pricing">Pricing</a>
+              <a href="/app#/login">Login</a>
+              <a href="/app#/register">Register</a>
+            </div>
+          </div>
+
+          <div class="hero-grid">
+            <div class="hero-copy">
+              <span class="eyebrow"><span class="icon">bar_chart</span>Open source lead generation workspace</span>
+              <h1>Extract Business Leads at Scale</h1>
+              <p>Search Google Maps and LinkedIn, filter results, and export to Excel in minutes.</p>
+              <div class="hero-actions">
+                <a class="button primary" href="/app#/login"><span class="icon">rocket_launch</span>Get Started Free</a>
+                <a class="button secondary" href="https://github.com/maitpatni/super-data-extractor" target="_blank" rel="noopener"><span class="icon">code</span>View on GitHub</a>
+              </div>
+            </div>
+
+            <div class="hero-card">
+              <div class="dashboard-mock" aria-hidden="true">
+                <div class="mock-topbar">
+                  <div class="mock-search"><span class="icon">search</span>restaurants in Mumbai</div>
+                  <div class="mock-user"></div>
+                </div>
+                <div class="mock-body">
+                  <div class="mock-sidebar">
+                    <div class="mock-nav-item active"></div>
+                    <div class="mock-nav-item"></div>
+                    <div class="mock-nav-item"></div>
+                    <div class="mock-nav-item"></div>
+                  </div>
+                  <div class="mock-panel">
+                    <div class="mock-stat-grid">
+                      <div class="mock-stat">
+                        <span>Results</span>
+                        <strong>486</strong>
+                      </div>
+                      <div class="mock-stat">
+                        <span>Phone Coverage</span>
+                        <strong>82%</strong>
+                      </div>
+                      <div class="mock-stat">
+                        <span>Cost</span>
+                        <strong>₹143</strong>
+                      </div>
+                    </div>
+                    <div class="mock-chart">
+                      <div class="mock-bar"></div>
+                      <div class="mock-bar"></div>
+                      <div class="mock-bar"></div>
+                      <div class="mock-bar"></div>
+                      <div class="mock-bar"></div>
+                    </div>
+                    <div class="mock-table">
+                      <div class="mock-table-head">
+                        <span>Name</span>
+                        <span>Rating</span>
+                        <span>Phone</span>
+                        <span>Export</span>
+                      </div>
+                      <div class="mock-table-row">
+                        <div>Northstar Foods</div>
+                        <div>4.7</div>
+                        <div>Available</div>
+                        <div class="mock-pill">Ready</div>
+                      </div>
+                      <div class="mock-table-row">
+                        <div>Blue Orbit Cafe</div>
+                        <div>4.5</div>
+                        <div>Available</div>
+                        <div class="mock-pill">Ready</div>
+                      </div>
+                      <div class="mock-table-row">
+                        <div>Growth Labs Media</div>
+                        <div>4.8</div>
+                        <div>Available</div>
+                        <div class="mock-pill">Ready</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-head">
+          <span class="badge"><span class="icon">auto_awesome</span>Features</span>
+          <h2>Built for high-volume lead extraction</h2>
+          <p>Everything needed to search, validate, manage, and export business records from a single self-hosted dashboard.</p>
+        </div>
+
+        <div class="features-grid">
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">place</span></div>
+            <h3>100-500+ Results</h3>
+            <p>Grid search strategy extracts far more results than the standard API limit.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">tune</span></div>
+            <h3>Smart Filters</h3>
+            <p>Filter by phone, website, rating, open now, price level and more.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">download</span></div>
+            <h3>Excel &amp; CSV Export</h3>
+            <p>Export clean, formatted data with one click.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">person_search</span></div>
+            <h3>LinkedIn Profiles</h3>
+            <p>Search LinkedIn via Proxycurl API — no OAuth needed.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">savings</span></div>
+            <h3>Cost Tracking in ₹</h3>
+            <p>See estimated API costs in INR before and after every search.</p>
+          </article>
+          <article class="feature-card">
+            <div class="feature-icon"><span class="icon">manage_accounts</span></div>
+            <h3>User Accounts</h3>
+            <p>Save searches, history and settings per account with SQLite.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="how-it-works">
+      <div class="container">
+        <div class="section-head">
+          <span class="badge"><span class="icon">view_timeline</span>How It Works</span>
+          <h2>Three steps from setup to export</h2>
+          <p>Connect your APIs once, run searches on demand, and download usable lead sheets immediately.</p>
+        </div>
+
+        <div class="steps-grid">
+          <article class="step-card">
+            <div class="step-index">1</div>
+            <div class="step-icon"><span class="icon">key</span></div>
+            <h3>Set Your API Keys</h3>
+            <p>Add your Google Maps and Proxycurl keys in Settings.</p>
+          </article>
+          <article class="step-card">
+            <div class="step-index">2</div>
+            <div class="step-icon"><span class="icon">travel_explore</span></div>
+            <h3>Search &amp; Extract</h3>
+            <p>Enter keyword, location and category. Hit Extract.</p>
+          </article>
+          <article class="step-card">
+            <div class="step-index">3</div>
+            <div class="step-icon"><span class="icon">download</span></div>
+            <h3>Export &amp; Use</h3>
+            <p>Download Excel or CSV with one click.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="pricing">
+      <div class="container">
+        <div class="section-head">
+          <span class="badge"><span class="icon">sell</span>Pricing</span>
+          <h2>Deploy it once, use it freely</h2>
+          <p>The app is open source and self-hosted. Your only ongoing spend is the API usage you choose to make.</p>
+        </div>
+
+        <div class="pricing-wrap">
+          <article class="pricing-card">
+            <span class="badge">Open Source &amp; Free</span>
+            <div class="pricing-price">₹0 / month</div>
+            <p>Self-hosted. Forever free.</p>
+            <ul class="pricing-list">
+              <li><span class="pricing-check icon">check_circle</span><span>Unlimited searches</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>Google Maps extraction</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>LinkedIn extraction (Proxycurl key required)</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>Excel &amp; CSV export</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>User accounts &amp; history</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>Dark &amp; light mode</span></li>
+              <li><span class="pricing-check icon">check_circle</span><span>Open source on GitHub</span></li>
+            </ul>
+            <a class="button primary" href="https://github.com/maitpatni/super-data-extractor" target="_blank" rel="noopener"><span class="icon">deployed_code</span>Deploy for Free</a>
+            <p class="pricing-note">Only API costs apply — Google Maps gives $200 free credit/month.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="container">
+        <div class="footer-card">
+          <div class="footer-copy">
+            <a class="brand" href="/landing">
+              <span class="brand-mark"><span class="brand-orb"></span></span>
+              <span>
+                <strong>SuperDataExtractor</strong>
+                <small>Search, filter, export, repeat.</small>
+              </span>
+            </a>
+          </div>
+          <div>
+            <div class="footer-links">
+              <a href="https://github.com/maitpatni/super-data-extractor" target="_blank" rel="noopener">GitHub</a>
+              <a href="/app#/login">Live Demo</a>
+              <a href="https://github.com/maitpatni/super-data-extractor#readme" target="_blank" rel="noopener">Documentation</a>
+            </div>
+            <div class="footer-meta">© 2026 Broodle. MIT License.</div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

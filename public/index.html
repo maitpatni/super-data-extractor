@@ -3,18 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SuperDataExtractor</title>
+  <title>Super Data Extractor - Google Maps & LinkedIn Lead Generation Tool</title>
+  <meta name="description" content="Extract business leads from Google Maps and LinkedIn. Search by keyword, location and category. Export to Excel or CSV. 100-500+ results per search.">
+  <meta name="keywords" content="google maps extractor, linkedin scraper, business leads, data extraction, lead generation, places api, email extractor, phone number extractor, b2b leads">
+  <meta name="author" content="Broodle">
+  <meta property="og:title" content="Super Data Extractor - Google Maps & LinkedIn Lead Generation">
+  <meta property="og:description" content="Extract business leads from Google Maps and LinkedIn. Filter, sort and export to Excel or CSV.">
+  <meta property="og:url" content="https://superextractor.broodle.in">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Super Data Extractor">
+  <meta name="twitter:description" content="Extract business leads from Google Maps and LinkedIn profiles.">
+  <link rel="canonical" href="https://superextractor.broodle.in">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="shortcut icon" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link rel="stylesheet" href="/css/styles.css">
   <script>
     (() => {
       try {
-        const theme = localStorage.getItem('sde_theme') || 'dark';
+        const theme = localStorage.getItem('sde_theme') || 'light';
         document.documentElement.setAttribute('data-theme', theme);
       } catch (error) {
-        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     })();
   </script>
@@ -41,35 +55,35 @@
 
       <nav class="sidebar-nav" id="sidebarNav">
         <a href="#/" class="nav-link" data-route="/">
-          <span class="nav-icon">01</span>
+          <span class="nav-icon"><span class="icon">dashboard</span></span>
           <span>
             <strong>Dashboard</strong>
             <small>Pipeline snapshot</small>
           </span>
         </a>
         <a href="#/google-maps" class="nav-link" data-route="/google-maps">
-          <span class="nav-icon">02</span>
+          <span class="nav-icon"><span class="icon">map</span></span>
           <span>
             <strong>Google Maps</strong>
             <small>Places API extraction</small>
           </span>
         </a>
         <a href="#/linkedin" class="nav-link" data-route="/linkedin">
-          <span class="nav-icon">03</span>
+          <span class="nav-icon"><span class="icon">group</span></span>
           <span>
             <strong>LinkedIn</strong>
             <small>Mock lead discovery</small>
           </span>
         </a>
         <a href="#/history" class="nav-link" data-route="/history">
-          <span class="nav-icon">04</span>
+          <span class="nav-icon"><span class="icon">history</span></span>
           <span>
             <strong>History</strong>
             <small>Recent extraction runs</small>
           </span>
         </a>
         <a href="#/settings" class="nav-link" data-route="/settings">
-          <span class="nav-icon">05</span>
+          <span class="nav-icon"><span class="icon">settings</span></span>
           <span>
             <strong>Settings</strong>
             <small>Keys, quotas, preferences</small>

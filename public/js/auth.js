@@ -6,53 +6,82 @@ const Auth = {
 
     container.innerHTML = `
       <section class="auth-shell">
-        <article class="auth-card glass-card">
-          <a class="brand auth-brand" href="#/">
+        <aside class="auth-panel-left">
+          <a class="brand auth-brand auth-brand-inverse" href="#/">
             <span class="brand-mark">
               <span class="brand-orb"></span>
             </span>
             <span>
-              <strong>SuperDataExtractor</strong>
+              <strong>Super Data Extractor</strong>
               <small>Maps + LinkedIn intelligence</small>
             </span>
           </a>
-          <div class="section-head auth-head">
-            <div>
-              <p class="eyebrow">${isRegister ? 'Create account' : 'Welcome back'}</p>
-              <h3>${isRegister ? 'Register' : 'Login'}</h3>
-              <p>${isRegister ? 'Create your account to persist searches, history, and settings.' : 'Sign in to continue to your saved extraction workspace.'}</p>
-            </div>
+          <div class="auth-panel-copy">
+            <p class="eyebrow auth-eyebrow-inverse">Lead generation workspace</p>
+            <h1>Super Data Extractor</h1>
+            <p class="auth-panel-tagline-main">Extract Google Maps & LinkedIn data at scale</p>
+            <p class="auth-panel-tagline-sub">Extract. Filter. Export.</p>
           </div>
-          <form id="authForm" class="settings-stack auth-form">
-            ${isRegister ? `
-              <div class="field">
-                <label for="authFullName">Full Name</label>
-                <input id="authFullName" name="fullName" type="text" placeholder="Ava Patel" required>
+          <ul class="auth-feature-list" aria-label="Product highlights">
+            <li><span class="auth-feature-icon">${Utils.icon('check_circle')}</span><span>Extract 100-500+ business records per search with structured output.</span></li>
+            <li><span class="auth-feature-icon">${Utils.icon('check_circle')}</span><span>Search by keyword, location, and category across Maps and LinkedIn workflows.</span></li>
+            <li><span class="auth-feature-icon">${Utils.icon('check_circle')}</span><span>Filter, sort, and export clean lead lists to Excel or CSV in minutes.</span></li>
+          </ul>
+        </aside>
+        <div class="auth-panel-right">
+          <article class="auth-card glass-card">
+            <div class="auth-card-mark">
+              <span class="brand-mark">
+                <span class="brand-orb"></span>
+              </span>
+            </div>
+            <a class="brand auth-brand" href="#/">
+              <span class="brand-mark">
+                <span class="brand-orb"></span>
+              </span>
+              <span>
+                <strong>Super Data Extractor</strong>
+                <small>Extract. Filter. Export.</small>
+              </span>
+            </a>
+            <div class="section-head auth-head">
+              <div>
+                <p class="eyebrow">${isRegister ? 'Create account' : 'Welcome back'}</p>
+                <h3>${isRegister ? 'Register' : 'Login'}</h3>
+                <p>${isRegister ? 'Create your account to persist searches, history, and settings.' : 'Sign in to continue to your saved extraction workspace.'}</p>
               </div>
-            ` : ''}
-            <div class="field">
-              <label for="authEmail">Email</label>
-              <input id="authEmail" name="email" type="email" placeholder="ava@example.com" required>
             </div>
-            <div class="field">
-              <label for="authPassword">Password</label>
-              <input id="authPassword" name="password" type="password" placeholder="Minimum 8 characters" required>
-            </div>
-            ${isRegister ? `
+            <form id="authForm" class="settings-stack auth-form">
+              ${isRegister ? `
+                <div class="field">
+                  <label for="authFullName">Full Name</label>
+                  <input id="authFullName" name="fullName" type="text" placeholder="Ava Patel" required>
+                </div>
+              ` : ''}
               <div class="field">
-                <label for="authMobile">Mobile Number</label>
-                <input id="authMobile" name="mobile" type="tel" inputmode="numeric" placeholder="10 digit mobile number" required>
+                <label for="authEmail">Email</label>
+                <input id="authEmail" name="email" type="email" placeholder="ava@example.com" required>
               </div>
-            ` : ''}
-            <div class="form-actions auth-actions">
-              <button class="button primary" id="authSubmit" type="submit">${isRegister ? 'Register' : 'Login'}</button>
-            </div>
-          </form>
-          <p class="auth-switch">
-            ${isRegister ? 'Already have an account?' : "Don't have an account?"}
-            <a class="link" href="#/${isRegister ? 'login' : 'register'}">${isRegister ? 'Login' : 'Register'}</a>
-          </p>
-        </article>
+              <div class="field">
+                <label for="authPassword">Password</label>
+                <input id="authPassword" name="password" type="password" placeholder="Minimum 8 characters" required>
+              </div>
+              ${isRegister ? `
+                <div class="field">
+                  <label for="authMobile">Mobile Number</label>
+                  <input id="authMobile" name="mobile" type="tel" inputmode="numeric" placeholder="10 digit mobile number" required>
+                </div>
+              ` : ''}
+              <div class="form-actions auth-actions">
+                <button class="button primary" id="authSubmit" type="submit">${isRegister ? 'Register' : 'Login'}</button>
+              </div>
+            </form>
+            <p class="auth-switch">
+              ${isRegister ? 'Already have an account?' : "Don't have an account?"}
+              <a class="link" href="#/${isRegister ? 'login' : 'register'}">${isRegister ? 'Login' : 'Register'}</a>
+            </p>
+          </article>
+        </div>
       </section>
     `;
 

@@ -517,7 +517,7 @@ const GoogleMaps = {
               <button class="saved-search-chip" type="button" data-saved-search="${index}">
                 <span>${Utils.escapeHtml(search.name)}</span>
                 <small>${Utils.escapeHtml(Utils.relativeTime(search.savedAt))}</small>
-                <span class="saved-search-remove" data-delete-saved-search="${index}" aria-label="Delete saved search">×</span>
+                <span class="saved-search-remove" data-delete-saved-search="${index}" aria-label="Delete saved search">${Utils.icon('delete')}</span>
               </button>
             `,
           )
@@ -1194,7 +1194,7 @@ const GoogleMaps = {
           <div class="inline-actions">
             <span class="badge results-count-badge">Session total ${this.sessionPool.length}</span>
             <div class="popover-anchor">
-              <button class="icon-btn" id="gmColumnsToggle" type="button" aria-label="Toggle visible columns">⚙</button>
+              <button class="icon-btn" id="gmColumnsToggle" type="button" aria-label="Toggle visible columns">${Utils.icon('settings')}</button>
               ${this.renderColumnPicker()}
             </div>
           </div>
@@ -1323,7 +1323,9 @@ const GoogleMaps = {
       .filter(([key]) => visibleColumns.includes(key))
       .map(([key, label]) => {
         const active = this.sortState.key === key;
-        const indicator = active ? (this.sortState.direction === 'asc' ? '↑' : '↓') : '↕';
+        const indicator = active
+          ? Utils.icon(this.sortState.direction === 'asc' ? 'arrow_upward' : 'arrow_downward')
+          : Utils.icon('unfold_more');
         return `<th class="sortable ${active ? 'active' : ''}" data-sort="${key}">${Utils.escapeHtml(label)}<span class="sort-indicator">${indicator}</span></th>`;
       })
       .join('');

@@ -33,8 +33,8 @@
 
 ### 🔗 LinkedIn Profile Extractor
 - 🔍 Search by name, company, role, location, industry
-- ⚡ Powered by [Proxycurl API](https://nubela.co/proxycurl) — no OAuth, no browser automation, just an API key
-- 📋 Full profile data: name, headline, company, role, location, follower count, profile URL
+- ⚡ Powered by [Apollo.io API](https://app.apollo.io) — no OAuth, no browser automation, just an API key
+- 📋 Full profile data: name, headline, company, role, location, email, phone, profile URL
 - Same interactive table with sorting, filtering, and export
 
 ### 📊 Dashboard
@@ -58,7 +58,7 @@
 - Post-extraction column picker — show/hide columns before export
 
 ### ⚙️ Settings & UX
-- API key management per user account (Google Maps + LinkedIn/Proxycurl)
+- API key management per user account (Google Maps + LinkedIn/Apollo.io)
 - API key validation with live test button
 - Dark/light mode — persists across sessions
 - Saved searches with one-click reload (up to 10 per user)
@@ -73,7 +73,7 @@
 ### Prerequisites
 - **Node.js 18+** — [Download](https://nodejs.org)
 - **Google Maps API key** with Places API (New) enabled — [Setup guide below](#-google-maps-api-key-setup-2026)
-- *(Optional)* **Proxycurl API key** for LinkedIn — [Setup guide below](#-linkedin-proxycurl-api-key-setup)
+- *(Optional)* **Apollo.io API key** for LinkedIn — [Setup guide below](#-linkedin-via-apolloio-api)
 
 ### Run Locally (Development)
 
@@ -180,26 +180,15 @@ server {
 
 ---
 
-## 🔑 LinkedIn (Proxycurl) API Key Setup
+## 🔑 LinkedIn via Apollo.io API
 
-LinkedIn's official API requires OAuth approval for companies. For individual use, [Proxycurl](https://nubela.co/proxycurl) provides a clean REST API to access LinkedIn data — no OAuth, no browser automation.
+1. Sign up free at https://app.apollo.io
+2. Go to Settings → Integrations → API Keys
+3. Click 'Create new key'
+4. Copy your API key
+5. Paste in Super Data Extractor → Settings → Apollo.io API Key → Save & Test
 
-### Step-by-step
-
-1. **Sign up at Proxycurl**
-   👉 [nubela.co/proxycurl](https://nubela.co/proxycurl)
-
-2. **Create an account** — free trial credits included
-
-3. **Get your API key**
-   - Go to **Dashboard → API Keys**
-   - Copy your key
-
-4. **Add to the app**
-   - Open Super Data Extractor → **Settings**
-   - Paste your key in **LinkedIn API Key (Proxycurl)** → **Save & Test**
-
-> 💡 Proxycurl pricing starts at $10/month for 1,000 credits. Each profile lookup = 1 credit.
+> 💡 Free tier: 200 email credits/month, unlimited people search
 
 ---
 
@@ -213,7 +202,7 @@ LinkedIn's official API requires OAuth approval for companies. For individual us
 | Auth | `bcryptjs` + Bearer tokens |
 | Excel Export | SheetJS (`xlsx`) |
 | Maps Data | Google Places API (New) |
-| LinkedIn Data | Proxycurl REST API |
+| LinkedIn Data | Apollo.io REST API |
 | Process Manager | PM2 |
 
 ---

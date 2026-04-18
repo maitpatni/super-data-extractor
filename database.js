@@ -93,7 +93,7 @@ db.exec(`
     linkedinApiKey TEXT,
     googleMapsEnabled INTEGER NOT NULL DEFAULT 1,
     linkedinEnabled INTEGER NOT NULL DEFAULT 1,
-    theme TEXT NOT NULL DEFAULT 'dark',
+    theme TEXT NOT NULL DEFAULT 'light',
     updatedAt TEXT NOT NULL,
     validationsJson TEXT,
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -228,7 +228,7 @@ function normalizeSettingsRow(row, defaults = {}) {
     linkedinApiKey: '',
     googleMapsEnabled: true,
     linkedinEnabled: true,
-    theme: 'dark',
+    theme: 'light',
     validations: {
       googleMaps: { status: null, lastValidatedAt: null },
       linkedin: { status: null, lastValidatedAt: null },
@@ -322,7 +322,7 @@ function saveUserSettings(userId, nextSettings, defaults = {}) {
     linkedinApiKey: normalized.linkedinApiKey || '',
     googleMapsEnabled: normalized.googleMapsEnabled ? 1 : 0,
     linkedinEnabled: normalized.linkedinEnabled ? 1 : 0,
-    theme: normalized.theme || 'dark',
+    theme: normalized.theme || 'light',
     updatedAt,
     validationsJson: serializeJson(normalized.validations),
   });

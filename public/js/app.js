@@ -83,6 +83,7 @@ const App = {
   },
 
   async init() {
+    this.applyTheme();
     this.bindShellEvents();
     this.registerRoutes();
     await this.restoreSession();
@@ -217,7 +218,8 @@ const App = {
   },
 
   applyTheme() {
-    document.documentElement.setAttribute('data-theme', Utils.getThemePreference());
+    const theme = localStorage.getItem(Utils.themeKey) || Utils.getThemePreference() || 'light';
+    document.documentElement.setAttribute('data-theme', theme);
   },
 
   toggleTheme() {
@@ -364,7 +366,7 @@ const App = {
           </div>
         </div>
         <div class="status-line">
-          <strong>${active ? `${Utils.escapeHtml(label)}: Active ✓` : 'Not configured'}</strong>
+          <strong>${active ? `${Utils.escapeHtml(label)}: Active ${Utils.icon('check_circle')}` : `Not configured ${Utils.icon('cancel')}`}</strong>
           ${active ? '<span class="status-pill success">Configured</span>' : '<a class="button secondary" href="#/settings">Settings</a>'}
         </div>
       </article>
@@ -393,8 +395,8 @@ const App = {
         <div class="kpi-band compact">
           <article class="stat-card">
             <p class="eyebrow">Status</p>
-            <div class="stat-value">Active ✓</div>
-            <p class="muted">${source === 'Google Maps' ? 'Places API configured' : 'Proxycurl configured'}</p>
+            <div class="stat-value">Active ${Utils.icon('check_circle')}</div>
+            <p class="muted">${source === 'Google Maps' ? 'Places API configured' : 'Apollo.io configured'}</p>
           </article>
           <article class="stat-card">
             <p class="eyebrow">Runs</p>
@@ -554,7 +556,7 @@ const App = {
         ${this.renderSourceCard('Google Maps', mapsRuns, googleConfigured)}
         ${this.renderSourceCard('LinkedIn', linkedinRuns, linkedinConfigured)}
         ${this.renderStatusCard('Google Maps API', googleConfigured, googleConfigured ? 'Places extraction is active.' : 'Add a Google Maps API key in Settings.')}
-        ${this.renderStatusCard('LinkedIn API', linkedinConfigured, linkedinConfigured ? 'Proxycurl extraction is active.' : 'Add a LinkedIn API key in Settings.')}
+        ${this.renderStatusCard('LinkedIn API', linkedinConfigured, linkedinConfigured ? 'Apollo.io extraction is active.' : 'Add an Apollo.io API key in Settings.')}
       </section>
 
       <section class="glass-card">
@@ -786,10 +788,10 @@ const App = {
   renderValidationBadge(serviceKey, settings) {
     const validation = Utils.getValidationState(serviceKey, settings);
     if (validation.status === true) {
-      return '<span class="validation-badge valid">✓ Valid</span>';
+      return `<span class="validation-badge valid">${Utils.icon('check_circle')} Valid</span>`;
     }
     if (validation.status === false) {
-      return '<span class="validation-badge invalid">✕ Invalid</span>';
+      return `<span class="validation-badge invalid">${Utils.icon('cancel')} Invalid</span>`;
     }
     return '<span class="validation-badge neutral">Not tested</span>';
   },
@@ -876,15 +878,15 @@ const App = {
           <div class="section-head">
             <div>
               <h3>LinkedIn</h3>
-              <p>Production profile extraction using Proxycurl.</p>
+              <p>Production profile extraction using Apollo.io.</p>
             </div>
             ${this.renderValidationBadge('linkedin', settings)}
           </div>
           <div class="settings-stack">
             <div class="field">
-              <label for="settingsLinkedInKey">LinkedIn API Key (Proxycurl)</label>
+              <label for="settingsLinkedInKey">Apollo.io API Key</label>
               <input id="settingsLinkedInKey" type="password" value="${Utils.escapeHtml(settings.linkedinApiKey)}" autocomplete="off">
-              <span class="field-hint">Get a key from <a class="link" href="https://nubela.co/proxycurl" target="_blank" rel="noopener">Proxycurl</a>. Enter your Proxycurl API key to enable real LinkedIn profile extraction.</span>
+              <span class="field-hint">Get your free API key at <a class="link" href="https://app.apollo.io/#/settings/integrations/api" target="_blank" rel="noopener">app.apollo.io → Settings → Integrations → API</a>.</span>
               ${this.renderValidationTimestamp('linkedin', settings)}
             </div>
             <div class="toggle-row">
@@ -1006,7 +1008,7 @@ const App = {
           throw new Error(result.error || 'LinkedIn validation failed');
         }
         this.updateValidationState('linkedin', true, result.lastValidatedAt);
-        Utils.showToast('LinkedIn key verified', result.message || 'The server successfully reached Proxycurl.', 'success');
+        Utils.showToast('LinkedIn key verified', result.message || 'The server successfully reached Apollo.io.', 'success');
       }
     } catch (error) {
       this.updateValidationState(mode === 'google' ? 'googleMaps' : 'linkedin', false, new Date().toISOString());

@@ -26,6 +26,8 @@ const LinkedIn = {
     ['company', 'Company'],
     ['role', 'Role'],
     ['location', 'Location'],
+    ['email', 'Email'],
+    ['phone', 'Phone'],
     ['industry', 'Industry'],
     ['followerCount', 'Followers'],
     ['profileUrl', 'Profile'],
@@ -42,6 +44,8 @@ const LinkedIn = {
         row.company,
         row.role,
         row.location,
+        row.email,
+        row.phone,
         row.industry,
       ]
         .join(' ')
@@ -76,8 +80,8 @@ const LinkedIn = {
       <article class="glass-card">
         <div class="section-head">
           <div>
-            <h3>LinkedIn API key required</h3>
-            <p>Configure Proxycurl before running LinkedIn profile extraction.</p>
+            <h3>Apollo.io API key required</h3>
+            <p>Configure Apollo.io before running LinkedIn profile extraction.</p>
           </div>
         </div>
         <div class="results-note">
@@ -114,14 +118,14 @@ const LinkedIn = {
           <div class="hero-copy">
             <div>
               <p class="eyebrow">LinkedIn extraction</p>
-              <h2 class="headline">Search real LinkedIn profiles through your configured Proxycurl key.</h2>
+              <h2 class="headline">Search real LinkedIn profiles through your configured Apollo.io key.</h2>
             </div>
             <p class="lead">
               Use structured filters, review live profile matches, and export selected rows to Excel from the same workspace.
             </p>
             <div class="chip-list">
               <span class="chip">${settings.linkedinEnabled ? 'LinkedIn extractor enabled' : 'LinkedIn extractor disabled'}</span>
-              <span class="chip">${settings.linkedinApiKey ? 'Proxycurl key configured' : 'Proxycurl key required'}</span>
+              <span class="chip">${settings.linkedinApiKey ? 'Apollo.io key configured' : 'Apollo.io key required'}</span>
             </div>
           </div>
           <div class="kpi-band">
@@ -183,6 +187,9 @@ const LinkedIn = {
               <select id="liMaxResults">
                 <option value="5" ${Number(this.formState.maxResults) === 5 ? 'selected' : ''}>5</option>
                 <option value="10" ${Number(this.formState.maxResults) === 10 ? 'selected' : ''}>10</option>
+                <option value="25" ${Number(this.formState.maxResults) === 25 ? 'selected' : ''}>25</option>
+                <option value="50" ${Number(this.formState.maxResults) === 50 ? 'selected' : ''}>50</option>
+                <option value="100" ${Number(this.formState.maxResults) === 100 ? 'selected' : ''}>100</option>
               </select>
             </div>
           </div>
@@ -247,7 +254,9 @@ const LinkedIn = {
     const headers = this.columns
       .map(([key, label]) => {
         const active = this.sortState.key === key;
-        const indicator = active ? (this.sortState.direction === 'asc' ? '↑' : '↓') : '·';
+        const indicator = active
+          ? Utils.icon(this.sortState.direction === 'asc' ? 'arrow_upward' : 'arrow_downward')
+          : Utils.icon('unfold_more');
         return `<th class="sortable ${active ? 'active' : ''}" data-li-sort="${key}">${label}<span class="sort-indicator">${indicator}</span></th>`;
       })
       .join('');
@@ -261,6 +270,8 @@ const LinkedIn = {
           <td>${Utils.escapeHtml(row.company)}</td>
           <td>${Utils.escapeHtml(row.role)}</td>
           <td>${Utils.escapeHtml(row.location)}</td>
+          <td>${row.email ? `<a class="link" href="mailto:${Utils.escapeHtml(row.email)}">${Utils.escapeHtml(row.email)}</a>` : '-'}</td>
+          <td>${Utils.escapeHtml(row.phone || '-')}</td>
           <td>${Utils.escapeHtml(row.industry)}</td>
           <td>${Utils.formatNumber(row.followerCount)}</td>
           <td>${row.profileUrl ? `<a class="link" href="${Utils.escapeHtml(row.profileUrl)}" target="_blank" rel="noopener">Open</a>` : '-'}</td>
@@ -292,6 +303,8 @@ const LinkedIn = {
         Company: row.company,
         Role: row.role,
         Location: row.location,
+        Email: row.email,
+        Phone: row.phone,
         Industry: row.industry,
         Followers: row.followerCount,
         ProfileURL: row.profileUrl,
@@ -416,8 +429,8 @@ const LinkedIn = {
       if (error.configRequired) {
         this.currentResults = [];
         this.selectedIds = new Set();
-        this.configNotice = 'LinkedIn API key required. Go to Settings → LinkedIn API Key to configure.';
-        Utils.showToast('LinkedIn API key required', 'Go to Settings to add your Proxycurl key.', 'warning');
+        this.configNotice = 'Apollo.io API key required. Go to Settings → Apollo.io API Key to configure.';
+        Utils.showToast('Apollo.io API key required', 'Go to Settings to add your Apollo.io key.', 'warning');
       } else {
         Utils.showToast('LinkedIn extraction failed', error.message, 'error');
       }

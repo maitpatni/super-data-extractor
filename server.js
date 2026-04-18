@@ -9,8 +9,8 @@ const database = require('./database');
 const app = express();
 const PORT = 3000;
 const GOOGLE_PLACES_URL = 'https://places.googleapis.com/v1';
-const PROXYCURL_SEARCH_URL = 'https://nubela.co/proxycurl/api/v2/search/person/';
-const PROXYCURL_FALLBACK_SEARCH_URL = 'https://nubela.co/proxycurl/api/search/person';
+const APOLLO_PEOPLE_SEARCH_URL = 'https://api.apollo.io/api/v1/mixed_people/search';
+const APOLLO_HEALTH_CHECK_URL = 'https://api.apollo.io/api/v1/auth/health_check';
 const MAX_GOOGLE_RESULTS = 500;
 const MAX_GOOGLE_PAGES = 3;
 const GOOGLE_PAGE_DELAY_MS = 2000;
@@ -151,7 +151,7 @@ const VALID_PLACE_TYPES = new Set([
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 const progressSessions = new Map();
 const geocodeCache = new Map();
@@ -159,7 +159,7 @@ const mapsSeenSessions = new Map();
 const defaultSettings = {
   googleMapsApiKey: '',
   linkedinApiKey: '',
-  theme: 'dark',
+  theme: 'light',
   googleMapsEnabled: true,
   linkedinEnabled: true,
   validations: {
@@ -529,110 +529,75 @@ function splitFullName(name = '') {
   };
 }
 
-function parseOccupation(occupation = '') {
-  const raw = String(occupation || '').trim();
-  if (!raw) {
-    return { role: '', company: '' };
-  }
-
-  const match = raw.match(/^(.*?)\s+at\s+(.*)$/i);
-  if (!match) {
-    return { role: raw, company: '' };
-  }
-
-  return {
-    role: match[1].trim(),
-    company: match[2].trim(),
-  };
-}
-
-function pickCurrentExperience(profile = {}) {
-  const experiences = Array.isArray(profile.experiences) ? profile.experiences : [];
-  return experiences.find((item) => !item?.ends_at) || experiences[0] || null;
-}
-
 function normalizeLinkedInProfile(result = {}, fallback = {}) {
-  const profile = result.profile || {};
-  const currentExperience = pickCurrentExperience(profile);
-  const occupation = parseOccupation(profile.occupation);
-  const company = currentExperience?.company || profile.current_company_name || occupation.company || fallback.company || '';
-  const role = currentExperience?.title || occupation.role || fallback.role || '';
-  const location = currentExperience?.location || profile.city || profile.state || profile.country_full_name || fallback.location || '';
-  const industry = profile.industry || currentExperience?.company_industry || fallback.industry || '';
-  const profileUrl = result.professionalsocmed_profile_url || profile.professionalsocmed_profile_url || '';
-  const publicIdentifier = profile.public_identifier || profileUrl.split('/in/')[1]?.replace(/\/$/, '') || '';
+  const location = [result.city, result.state, result.country].filter(Boolean).join(', ') || fallback.location || '';
+  const phone = Array.isArray(result.phone_numbers)
+    ? (result.phone_numbers.find((entry) => entry?.sanitized_number)?.sanitized_number || '')
+    : '';
+  const industryHistory = Array.isArray(result.employment_history) ? result.employment_history : [];
+  const industry = result.organization?.industry || industryHistory.find((entry) => entry?.organization_industry)?.organization_industry || fallback.industry || '';
 
   return {
-    id: publicIdentifier || profileUrl || `${profile.full_name || fallback.name}-${result.last_updated || Date.now()}`,
-    name: profile.full_name || [profile.first_name, profile.last_name].filter(Boolean).join(' ') || fallback.name || '',
-    headline: profile.headline || role || '',
-    company,
-    role,
+    id: result.id || result.linkedin_url || `${result.name || fallback.name}-${Date.now()}`,
+    name: result.name || [result.first_name, result.last_name].filter(Boolean).join(' ') || fallback.name || '',
+    firstName: result.first_name || '',
+    lastName: result.last_name || '',
+    headline: result.headline || result.title || '',
+    company: result.organization?.name || fallback.company || '',
+    companyWebsite: result.organization?.website_url || '',
+    role: result.title || fallback.role || '',
     location,
     industry,
-    followerCount: profile.follower_count ?? '',
-    profileUrl,
-    profilePictureUrl: profile.profile_pic_url || '',
-    lastUpdated: result.last_updated || '',
+    email: result.email || '',
+    phone,
+    profileUrl: result.linkedin_url || '',
+    photoUrl: result.photo_url || '',
+    profilePictureUrl: result.photo_url || '',
+    connectionDegree: '',
+    followerCount: '',
+    lastUpdated: result.updated_at || '',
   };
 }
 
-async function searchLinkedInProfiles({ apiKey, firstName, lastName, company, role, location, maxResults }) {
-  const requestedResults = Math.min(Math.max(Number(maxResults) || 10, 1), 10);
-  const searchParams = {
-    country: 'IN',
-    page_size: requestedResults,
-    enrich_profiles: 'enrich',
-    use_cache: 'if-present',
-  };
+async function searchLinkedInProfiles({ apiKey, name, company, role, location, industry, maxResults }) {
+  const requestedResults = Math.min(Math.max(Number(maxResults) || 10, 1), 100);
+  const perPage = 25;
+  const pages = Math.ceil(requestedResults / perPage);
+  const allPeople = [];
 
-  if (firstName) searchParams.first_name = firstName;
-  if (lastName) searchParams.last_name = lastName;
-  if (company) searchParams.current_company_name = company;
-  if (role) searchParams.current_role_title = role;
-  if (location) searchParams.city = location;
+  for (let page = 1; page <= pages && allPeople.length < requestedResults; page += 1) {
+    const body = { page, per_page: perPage };
 
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-  };
+    if (name) body.q_keywords = name;
+    if (company) body.q_organization_name = company;
+    if (role) body.person_titles = [role];
+    if (location) body.person_locations = [location];
+    if (industry && !name) body.q_keywords = industry;
 
-  try {
-    const url = new URL(PROXYCURL_SEARCH_URL);
-    Object.entries(searchParams).forEach(([key, value]) => {
-      if (value != null && value !== '') {
-        url.searchParams.set(key, value);
-      }
-    });
-
-    return await fetchJson(url.toString(), {
-      method: 'GET',
+    const response = await fetch(APOLLO_PEOPLE_SEARCH_URL, {
+      method: 'POST',
       headers: {
-        Authorization: headers.Authorization,
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'X-Api-Key': apiKey,
       },
+      body: JSON.stringify(body),
     });
-  } catch (primaryError) {
-    const fallbackBody = {
-      country: 'IN',
-      first_name: firstName || undefined,
-      last_name: lastName || undefined,
-      company_name: company || undefined,
-      title: role || undefined,
-      location: location || undefined,
-      page_size: requestedResults,
-      enrich_profiles: 'enrich',
-    };
 
-    try {
-      return await fetchJson(PROXYCURL_FALLBACK_SEARCH_URL, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(fallbackBody),
-      });
-    } catch (fallbackError) {
-      throw new Error(fallbackError.message || primaryError.message || 'LinkedIn search failed.');
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || err.error || 'Apollo.io API request failed');
+    }
+
+    const data = await response.json();
+    allPeople.push(...(data.people || []));
+
+    if (!data.pagination || page >= data.pagination.total_pages) {
+      break;
     }
   }
+
+  return allPeople.slice(0, requestedResults);
 }
 
 async function geocodeLocation(location, apiKey) {
@@ -1440,19 +1405,23 @@ app.post('/api/settings/validate-linkedin', (req, res) => {
   const apiKey = req.body.apiKey || userSettings.linkedinApiKey;
 
   if (!apiKey) {
-    return res.status(400).json({ valid: false, error: 'LinkedIn API key is required.' });
+    return res.status(400).json({ valid: false, error: 'Apollo.io API key is required.' });
   }
 
-  searchLinkedInProfiles({
-    apiKey,
-    firstName: 'John',
-    lastName: 'Smith',
-    company: '',
-    role: '',
-    location: '',
-    maxResults: 1,
+  fetch(APOLLO_HEALTH_CHECK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'X-Api-Key': apiKey,
+    },
   })
-    .then(() => {
+    .then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.is_logged_in !== true) {
+        throw new Error(data.message || data.error || 'Invalid Apollo.io API key');
+      }
+
       const validatedAt = new Date().toISOString();
       database.updateSettingsValidation(req.auth.userId, 'linkedin', true, validatedAt, defaultSettings);
 
@@ -1460,7 +1429,7 @@ app.post('/api/settings/validate-linkedin', (req, res) => {
         valid: true,
         status: 'OK',
         lastValidatedAt: validatedAt,
-        message: 'The server successfully reached Proxycurl with the current LinkedIn API key.',
+        message: 'The server successfully reached Apollo.io with the current API key.',
       });
     })
     .catch((error) => {
@@ -1807,25 +1776,23 @@ app.post('/api/linkedin/search', async (req, res) => {
 
   if (!userSettings.linkedinApiKey) {
     return res.status(402).json({
-      error: 'LinkedIn API key not configured',
+      error: 'Apollo.io API key not configured',
       configRequired: true,
     });
   }
 
-  const { firstName, lastName } = splitFullName(name);
-
   try {
-    const proxycurlResponse = await searchLinkedInProfiles({
+    const apolloPeople = await searchLinkedInProfiles({
       apiKey: userSettings.linkedinApiKey,
-      firstName,
-      lastName,
+      name,
       company,
       role,
       location,
+      industry,
       maxResults,
     });
 
-    const normalizedResults = (proxycurlResponse.results || [])
+    const normalizedResults = apolloPeople
       .map((entry) => normalizeLinkedInProfile(entry, { name, company, role, location, industry }))
       .filter((profile) => {
         if (industry && !String(profile.industry || '').toLowerCase().includes(industry.toLowerCase())) {
@@ -1854,7 +1821,7 @@ app.post('/api/linkedin/search', async (req, res) => {
       extraction,
       meta: {
         returnedResults: normalizedResults.length,
-        totalResultCount: proxycurlResponse.total_result_count ?? normalizedResults.length,
+        totalResultCount: normalizedResults.length,
       },
     });
   } catch (error) {
@@ -1985,7 +1952,15 @@ app.get('/api/check-url', async (req, res) => {
   }
 });
 
-app.get('*', (req, res) => {
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+});
+
+app.get('/landing', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+});
+
+app.get(['/app', '/app/*'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
