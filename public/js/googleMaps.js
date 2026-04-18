@@ -1010,8 +1010,8 @@ const GoogleMaps = {
       <section class="hero-panel">
         <div class="hero-grid">
           <div class="hero-copy">
-            <div>
-              <p class="eyebrow">Google Places API (New)</p>
+            <div class="hero-title-stack">
+              <p class="eyebrow page-badge">${App.renderBrandIcon('google-maps')}Google Places API</p>
               <h2 class="headline">Run bulk Google Maps extraction, save reusable searches, and manage a deduplicated session pool.</h2>
             </div>
             <p class="lead">The client now streams extraction progress from the server, stores saved searches locally, validates websites after extraction, and lets you export only the visible columns.</p>

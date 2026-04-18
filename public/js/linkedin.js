@@ -116,8 +116,8 @@ const LinkedIn = {
       <section class="hero-panel">
         <div class="hero-grid">
           <div class="hero-copy">
-            <div>
-              <p class="eyebrow">LinkedIn extraction</p>
+            <div class="hero-title-stack">
+              <p class="eyebrow page-badge">${App.renderBrandIcon('linkedin')}LinkedIn extraction</p>
               <h2 class="headline">Search real LinkedIn profiles through your configured Apollo.io key.</h2>
             </div>
             <p class="lead">
