@@ -1,121 +1,361 @@
 const Utils = {
-  showToast(message, type = 'info', duration = 4000) {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    
-    const icons = {
-      success: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
-      error: '<circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>',
-      warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>',
-      info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>'
-    };
-
-    toast.innerHTML = `
-      <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        ${icons[type] || icons.info}
-      </svg>
-      <span class="toast-message">${message}</span>
-      <button class="toast-close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"></line>
-          <line x1="6" y1="6" x2="18" y2="18"></line>
-        </svg>
-      </button>
-    `;
-
-    container.appendChild(toast);
-
-    toast.querySelector('.toast-close').addEventListener('click', () => {
-      toast.classList.add('toast-out');
-      setTimeout(() => toast.remove(), 300);
-    });
-
-    setTimeout(() => {
-      toast.classList.add('toast-out');
-      setTimeout(() => toast.remove(), 300);
-    }, duration);
-  },
-
-  formatDate(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now - date;
-    
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
-    if (diff < 604800000) return `${Math.floor(diff / 86400000)} days ago`;
-    
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  },
-
-  generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-  },
-
-  debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    };
-  },
-
-  formatNumber(num) {
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
-    return num.toString();
-  },
-
-  formatPhone(phone) {
-    if (!phone) return '-';
-    return phone;
-  },
-
-  formatRating(rating) {
-    if (!rating) return '-';
-    return rating.toFixed(1);
-  },
-
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  },
-
-  getApiKey(key) {
-    const settings = this.getSettings();
-    return settings[key] || '';
+  settingsKey: 'superDataExtractor.settings',
+  authTokenKey: 'sde_auth_token',
+  currentUserKey: 'sde_current_user',
+  themeKey: 'sde_theme',
+  historyKey: 'superDataExtractor.history',
+  savedSearchesKey: 'sde_saved_searches',
+  mapsColumnsKey: 'sde_maps_columns',
+  mapsSeenPlacesKey: 'sde_maps_seen_places',
+  defaultSettings: {
+    theme: 'dark',
+    googleMapsApiKey: '',
+    linkedinApiKey: '',
+    googleMapsEnabled: true,
+    linkedinEnabled: true,
+    validations: {
+      googleMaps: {
+        status: null,
+        lastValidatedAt: null,
+      },
+      linkedin: {
+        status: null,
+        lastValidatedAt: null,
+      },
+    },
   },
 
   getSettings() {
-    const stored = localStorage.getItem('dataExtractorSettings');
-    return stored ? JSON.parse(stored) : {
-      theme: 'dark',
-      googleMapsApiKey: '',
-      linkedinApiKey: '',
-      googleMapsEnabled: true,
-      linkedinEnabled: true
-    };
+    const stored = localStorage.getItem(this.settingsKey);
+    if (!stored) {
+      this.saveSettings(this.defaultSettings);
+      return structuredClone(this.defaultSettings);
+    }
+
+    try {
+      const parsed = JSON.parse(stored);
+      const merged = {
+        ...structuredClone(this.defaultSettings),
+        ...parsed,
+        validations: {
+          ...structuredClone(this.defaultSettings).validations,
+          ...(parsed.validations || {}),
+          googleMaps: {
+            ...structuredClone(this.defaultSettings).validations.googleMaps,
+            ...(parsed.validations?.googleMaps || {}),
+          },
+          linkedin: {
+            ...structuredClone(this.defaultSettings).validations.linkedin,
+            ...(parsed.validations?.linkedin || {}),
+          },
+        },
+      };
+      return merged;
+    } catch (error) {
+      this.saveSettings(this.defaultSettings);
+      return structuredClone(this.defaultSettings);
+    }
   },
 
   saveSettings(settings) {
-    localStorage.setItem('dataExtractorSettings', JSON.stringify(settings));
+    localStorage.setItem(this.settingsKey, JSON.stringify(settings));
+    if (settings?.theme) {
+      localStorage.setItem(this.themeKey, settings.theme);
+    }
+    return settings;
+  },
+
+  getThemePreference() {
+    return localStorage.getItem(this.themeKey) || this.getSettings().theme || this.defaultSettings.theme;
+  },
+
+  saveThemePreference(theme) {
+    localStorage.setItem(this.themeKey, theme);
+    const settings = this.getSettings();
+    settings.theme = theme;
+    this.saveSettings(settings);
+    return theme;
   },
 
   getHistory() {
-    const stored = localStorage.getItem('dataExtractorHistory');
-    return stored ? JSON.parse(stored) : [];
+    const stored = localStorage.getItem(this.historyKey);
+    if (!stored) return [];
+
+    try {
+      return JSON.parse(stored);
+    } catch (error) {
+      return [];
+    }
   },
 
   saveHistory(history) {
-    localStorage.setItem('dataExtractorHistory', JSON.stringify(history));
-  }
+    localStorage.setItem(this.historyKey, JSON.stringify(history.slice(0, 50)));
+    return history;
+  },
+
+  appendHistory(entry) {
+    const history = this.getHistory();
+    history.unshift(entry);
+    this.saveHistory(history);
+    return history;
+  },
+
+  clearAll() {
+    localStorage.removeItem(this.settingsKey);
+    localStorage.removeItem(this.authTokenKey);
+    localStorage.removeItem(this.currentUserKey);
+    localStorage.removeItem(this.historyKey);
+    localStorage.removeItem(this.savedSearchesKey);
+    localStorage.removeItem(this.mapsColumnsKey);
+    localStorage.removeItem(this.mapsSeenPlacesKey);
+    localStorage.removeItem(this.themeKey);
+  },
+
+  getSavedSearches() {
+    const stored = localStorage.getItem(this.savedSearchesKey);
+    if (!stored) return [];
+
+    try {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  saveSavedSearches(searches) {
+    const normalized = Array.isArray(searches) ? searches.slice(0, 10) : [];
+    localStorage.setItem(this.savedSearchesKey, JSON.stringify(normalized));
+    return normalized;
+  },
+
+  getMapsColumnPrefs(defaultColumns = []) {
+    const stored = localStorage.getItem(this.mapsColumnsKey);
+    if (!stored) return [...defaultColumns];
+
+    try {
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) && parsed.length ? parsed : [...defaultColumns];
+    } catch (error) {
+      return [...defaultColumns];
+    }
+  },
+
+  saveMapsColumnPrefs(columns) {
+    const normalized = Array.isArray(columns) ? columns : [];
+    localStorage.setItem(this.mapsColumnsKey, JSON.stringify(normalized));
+    return normalized;
+  },
+
+  buildMapsSeenCacheKey(keyword = '', location = '') {
+    return `${String(keyword || '').trim().toLowerCase()}::${String(location || '').trim().toLowerCase()}`;
+  },
+
+  getMapsSeenPlaces() {
+    const stored = localStorage.getItem(this.mapsSeenPlacesKey);
+    if (!stored) return {};
+
+    try {
+      const parsed = JSON.parse(stored);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (error) {
+      return {};
+    }
+  },
+
+  getMapsSeenPlaceIds(cacheKey = '') {
+    if (!cacheKey) return [];
+    const store = this.getMapsSeenPlaces();
+    const entry = store[cacheKey];
+    return Array.isArray(entry?.placeIds) ? entry.placeIds : [];
+  },
+
+  saveMapsSeenPlaceIds(cacheKey = '', placeIds = []) {
+    if (!cacheKey) return [];
+    const store = this.getMapsSeenPlaces();
+    const existing = new Set(Array.isArray(store[cacheKey]?.placeIds) ? store[cacheKey].placeIds : []);
+    for (const placeId of Array.isArray(placeIds) ? placeIds : []) {
+      if (placeId) existing.add(String(placeId));
+    }
+    store[cacheKey] = {
+      placeIds: Array.from(existing),
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(this.mapsSeenPlacesKey, JSON.stringify(store));
+    return store[cacheKey].placeIds;
+  },
+
+  clearMapsSeenPlaceIds(cacheKey = '') {
+    if (!cacheKey) {
+      localStorage.removeItem(this.mapsSeenPlacesKey);
+      return;
+    }
+    const store = this.getMapsSeenPlaces();
+    delete store[cacheKey];
+    localStorage.setItem(this.mapsSeenPlacesKey, JSON.stringify(store));
+  },
+
+  formatDate(value) {
+    const date = new Date(value);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  },
+
+  relativeTime(value) {
+    const diff = Date.now() - new Date(value).getTime();
+    const minutes = Math.round(diff / 60000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+    return `${Math.round(minutes / 1440)}d ago`;
+  },
+
+  escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+  },
+
+  slugify(value) {
+    return String(value || 'export')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  },
+
+  timestamp() {
+    return new Date().toISOString().replace(/[:.]/g, '-');
+  },
+
+  formatNumber(value) {
+    if (value === '' || value == null || Number.isNaN(Number(value))) return '-';
+    return new Intl.NumberFormat('en-US').format(Number(value));
+  },
+
+  formatCurrencyInr(value) {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(value || 0));
+  },
+
+  formatPercent(part, total) {
+    if (!total) return 0;
+    return Math.min(Math.round((part / total) * 100), 100);
+  },
+
+  clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  },
+
+  parseNumber(value, fallback = 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  },
+
+  getAuthToken() {
+    return localStorage.getItem(this.authTokenKey) || '';
+  },
+
+  saveAuthToken(token) {
+    if (!token) {
+      localStorage.removeItem(this.authTokenKey);
+      return '';
+    }
+    localStorage.setItem(this.authTokenKey, token);
+    return token;
+  },
+
+  clearAuthToken() {
+    localStorage.removeItem(this.authTokenKey);
+  },
+
+  getCurrentUser() {
+    const stored = localStorage.getItem(this.currentUserKey);
+    if (!stored) return null;
+    try {
+      return JSON.parse(stored);
+    } catch (error) {
+      return null;
+    }
+  },
+
+  saveCurrentUser(user) {
+    if (!user) {
+      localStorage.removeItem(this.currentUserKey);
+      return null;
+    }
+    localStorage.setItem(this.currentUserKey, JSON.stringify(user));
+    return user;
+  },
+
+  clearCurrentUser() {
+    localStorage.removeItem(this.currentUserKey);
+  },
+
+  clearSession() {
+    this.clearAuthToken();
+    this.clearCurrentUser();
+  },
+
+  getInitials(name = '') {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    if (!parts.length) return 'SD';
+    return parts.map((part) => part[0]?.toUpperCase() || '').join('');
+  },
+
+  pickExportRows(results, selectedIds) {
+    if (!selectedIds || !selectedIds.size) return results;
+    return results.filter((item) => selectedIds.has(item.id || item.placeId || item.profileUrl));
+  },
+
+  isGoogleMapsConfigured(settings = this.getSettings()) {
+    return Boolean(settings.googleMapsEnabled && settings.googleMapsApiKey);
+  },
+
+  isLinkedInConfigured(settings = this.getSettings()) {
+    return Boolean(settings.linkedinEnabled && settings.linkedinApiKey);
+  },
+
+  getValidationState(serviceKey, settings = this.getSettings()) {
+    return settings.validations?.[serviceKey] || { status: null, lastValidatedAt: null };
+  },
+
+  downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
+
+  createSessionId(prefix = 'session') {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  },
+
+  showToast(title, message = '', type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('article');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<strong>${this.escapeHtml(title)}</strong><p>${this.escapeHtml(message)}</p>`;
+    container.appendChild(toast);
+
+    window.setTimeout(() => {
+      toast.remove();
+    }, 3800);
+  },
 };
 
 window.Utils = Utils;

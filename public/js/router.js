@@ -1,42 +1,34 @@
 const Router = {
   routes: {},
-  currentRoute: null,
-
-  init() {
-    window.addEventListener('hashchange', () => this.handleRoute());
-    this.handleRoute();
-  },
 
   register(path, handler) {
     this.routes[path] = handler;
+  },
+
+  current() {
+    return window.location.hash.replace(/^#/, '') || '/';
   },
 
   navigate(path) {
     window.location.hash = path;
   },
 
-  handleRoute() {
-    const hash = window.location.hash.slice(1) || '/';
-    const path = hash.split('?')[0];
-    
-    this.currentRoute = path;
-    this.updateActiveNav(path);
-
-    const handler = this.routes[path];
-    if (handler) {
-      handler();
-    } else {
-      this.routes['/']()
-    }
+  handle() {
+    const route = this.current();
+    const handler = this.routes[route] || this.routes['/'];
+    if (handler) handler();
   },
 
-  updateActiveNav(path) {
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-      const route = item.getAttribute('data-route');
-      item.classList.toggle('active', route === path);
+  updateNav(route) {
+    document.querySelectorAll('[data-route]').forEach((link) => {
+      link.classList.toggle('active', link.dataset.route === route);
     });
-  }
+  },
+
+  init() {
+    window.addEventListener('hashchange', () => this.handle());
+    this.handle();
+  },
 };
 
 window.Router = Router;

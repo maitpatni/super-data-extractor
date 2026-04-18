@@ -1,214 +1,438 @@
 const LinkedIn = {
   currentResults: [],
-  isExtracting: false,
-
-  async extract(params) {
-    this.isExtracting = true;
-
-    try {
-      const response = await Api.searchLinkedIn(params);
-      
-      if (response.results) {
-        this.currentResults = response.results;
-        
-        const history = Utils.getHistory();
-        history.unshift({
-          id: Date.now(),
-          source: 'LinkedIn',
-          count: response.results.length,
-          timestamp: new Date().toISOString(),
-          results: response.results,
-          params
-        });
-        
-        if (history.length > 50) history.pop();
-        Utils.saveHistory(history);
-      }
-
-      return response;
-    } catch (error) {
-      throw error;
-    } finally {
-      this.isExtracting = false;
-    }
+  selectedIds: new Set(),
+  lastRun: null,
+  isLoading: false,
+  configNotice: '',
+  formState: {
+    name: '',
+    company: '',
+    role: '',
+    location: '',
+    industry: '',
+    maxResults: 10,
+  },
+  postFilters: {
+    search: '',
+  },
+  sortState: {
+    key: 'name',
+    direction: 'asc',
   },
 
-  renderSearchForm() {
+  columns: [
+    ['name', 'Name'],
+    ['headline', 'Headline'],
+    ['company', 'Company'],
+    ['role', 'Role'],
+    ['location', 'Location'],
+    ['industry', 'Industry'],
+    ['followerCount', 'Followers'],
+    ['profileUrl', 'Profile'],
+  ],
+
+  getFilteredResults() {
+    const search = this.postFilters.search.trim().toLowerCase();
+    const filtered = this.currentResults.filter((row) => {
+      if (!search) return true;
+
+      const haystack = [
+        row.name,
+        row.headline,
+        row.company,
+        row.role,
+        row.location,
+        row.industry,
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(search);
+    });
+
+    const { key, direction } = this.sortState;
+    filtered.sort((a, b) => {
+      const left = key === 'followerCount' ? Number(a[key] || 0) : String(a[key] ?? '').toLowerCase();
+      const right = key === 'followerCount' ? Number(b[key] || 0) : String(b[key] ?? '').toLowerCase();
+      const result = left > right ? 1 : left < right ? -1 : 0;
+      return direction === 'asc' ? result : -result;
+    });
+
+    return filtered;
+  },
+
+  setHistoryPreview(entry) {
+    this.currentResults = entry.results || [];
+    this.lastRun = entry;
+    this.selectedIds = new Set();
+    this.postFilters = { search: '' };
+    this.configNotice = '';
+  },
+
+  renderConfigState(settings) {
+    if (settings.linkedinApiKey) return '';
+
     return `
-      <div class="filters-section">
-        <div class="filters-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          Search Parameters
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Name</label>
-            <input type="text" class="form-input" id="liName" placeholder="e.g., John Smith">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Company</label>
-            <input type="text" class="form-input" id="liCompany" placeholder="e.g., Google, Meta, Apple">
+      <article class="glass-card">
+        <div class="section-head">
+          <div>
+            <h3>LinkedIn API key required</h3>
+            <p>Configure Proxycurl before running LinkedIn profile extraction.</p>
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Role / Title</label>
-            <input type="text" class="form-input" id="liRole" placeholder="e.g., Software Engineer">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Location</label>
-            <input type="text" class="form-input" id="liLocation" placeholder="e.g., San Francisco, CA">
-          </div>
+        <div class="results-note">
+          Configure API key in Settings to use this feature.
         </div>
-        <div class="form-group">
-          <label class="form-label">Industry</label>
-          <input type="text" class="form-input" id="liIndustry" placeholder="e.g., Technology, Finance">
+        <div class="inline-actions">
+          <a class="button primary" href="#/settings">Open Settings</a>
         </div>
-      </div>
+      </article>
+    `;
+  },
 
-      <button class="btn btn-primary btn-lg" id="liExtractBtn" style="width: 100%;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-        Start Extraction
-      </button>
+  renderNotice() {
+    if (!this.configNotice) return '';
 
-      <div class="card" style="margin-top: 24px; background: var(--bg-secondary); border-color: var(--border);">
-        <div style="display: flex; align-items: center; gap: 12px; color: var(--accent-warning);">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="12"></line>
-            <line x1="12" y1="16" x2="12.01" y2="16"></line>
-          </svg>
-          <span style="font-weight: 600;">Note</span>
+    return `
+      <article class="glass-card">
+        <div class="results-note">${Utils.escapeHtml(this.configNotice)}</div>
+        <div class="inline-actions">
+          <a class="button primary" href="#/settings">Go to Settings</a>
         </div>
-        <p style="margin-top: 12px; font-size: 13px; color: var(--text-secondary);">
-          LinkedIn API access is restricted. This demo uses sample data to demonstrate the extraction functionality.
-          In production, you would need LinkedIn's official API access or web scraping solutions.
-        </p>
+      </article>
+    `;
+  },
+
+  renderPage() {
+    const settings = Utils.getSettings();
+    const results = this.getFilteredResults();
+    const selectedCount = results.filter((row) => this.selectedIds.has(row.id)).length;
+
+    return `
+      <section class="hero-panel">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div>
+              <p class="eyebrow">LinkedIn extraction</p>
+              <h2 class="headline">Search real LinkedIn profiles through your configured Proxycurl key.</h2>
+            </div>
+            <p class="lead">
+              Use structured filters, review live profile matches, and export selected rows to Excel from the same workspace.
+            </p>
+            <div class="chip-list">
+              <span class="chip">${settings.linkedinEnabled ? 'LinkedIn extractor enabled' : 'LinkedIn extractor disabled'}</span>
+              <span class="chip">${settings.linkedinApiKey ? 'Proxycurl key configured' : 'Proxycurl key required'}</span>
+            </div>
+          </div>
+          <div class="kpi-band">
+            <article class="stat-card">
+              <p class="eyebrow">Visible profiles</p>
+              <div class="stat-value">${results.length}</div>
+              <p class="muted">After current filters</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Selected</p>
+              <div class="stat-value">${selectedCount}</div>
+              <p class="muted">Marked for export</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">API key</p>
+              <div class="stat-value">${settings.linkedinApiKey ? 'Ready' : 'Missing'}</div>
+              <p class="muted">Stored locally and on the server</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Last run</p>
+              <div class="stat-value">${this.lastRun ? Utils.relativeTime(this.lastRun.timestamp) : 'None'}</div>
+              <p class="muted">${this.lastRun ? `${this.lastRun.count} profiles returned` : 'Run a search to begin'}</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="extractor-layout">
+        <article class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>Profile search form</h3>
+              <p>Search by person, company, role, location, and industry.</p>
+            </div>
+          </div>
+          <div class="field-grid">
+            <div class="field">
+              <label for="liName">Name</label>
+              <input id="liName" type="text" value="${Utils.escapeHtml(this.formState.name)}" placeholder="Ava Patel">
+            </div>
+            <div class="field">
+              <label for="liCompany">Company</label>
+              <input id="liCompany" type="text" value="${Utils.escapeHtml(this.formState.company)}" placeholder="Northstar Labs">
+            </div>
+            <div class="field">
+              <label for="liRole">Role</label>
+              <input id="liRole" type="text" value="${Utils.escapeHtml(this.formState.role)}" placeholder="Head of Growth">
+            </div>
+            <div class="field">
+              <label for="liLocation">Location</label>
+              <input id="liLocation" type="text" value="${Utils.escapeHtml(this.formState.location)}" placeholder="Bengaluru">
+            </div>
+            <div class="field">
+              <label for="liIndustry">Industry</label>
+              <input id="liIndustry" type="text" value="${Utils.escapeHtml(this.formState.industry)}" placeholder="SaaS">
+            </div>
+            <div class="field">
+              <label for="liMaxResults">Max results</label>
+              <select id="liMaxResults">
+                <option value="5" ${Number(this.formState.maxResults) === 5 ? 'selected' : ''}>5</option>
+                <option value="10" ${Number(this.formState.maxResults) === 10 ? 'selected' : ''}>10</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="button primary" id="liRunSearch" ${this.isLoading ? 'disabled' : ''}>${this.isLoading ? 'Loading profiles…' : 'Run LinkedIn extraction'}</button>
+            <button class="button secondary" id="liResetForm" ${this.isLoading ? 'disabled' : ''}>Reset form</button>
+          </div>
+        </article>
+
+        ${this.renderConfigState(settings)}
+        ${this.renderNotice()}
+      </section>
+
+      <section class="table-card">
+        <div class="section-head">
+          <div>
+            <h3>Results workspace</h3>
+            <p>${results.length} rows visible, ${selectedCount} selected.</p>
+          </div>
+        </div>
+        ${this.renderControls(results)}
+        ${this.renderResultsTable(results)}
+      </section>
+    `;
+  },
+
+  renderControls(results) {
+    return `
+      <div class="results-toolbar">
+        <div class="filter-bar">
+          <div class="field-grid">
+            <div class="field">
+              <label for="liPostSearch">Search rows</label>
+              <input id="liPostSearch" type="text" value="${Utils.escapeHtml(this.postFilters.search)}" placeholder="Search by name, company, role">
+            </div>
+            <div class="field">
+              <label for="liSheetName">Sheet name</label>
+              <input id="liSheetName" type="text" value="LinkedIn Results" maxlength="31">
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar-actions">
+          <button class="button secondary" id="liExportSelected" ${results.length ? '' : 'disabled'}>Export selected</button>
+          <button class="button success" id="liExportAll" ${results.length ? '' : 'disabled'}>Export all</button>
+        </div>
       </div>
     `;
   },
 
-  renderResultsTable() {
-    if (this.currentResults.length === 0) {
+  renderResultsTable(results) {
+    if (!results.length) {
       return `
         <div class="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-            <rect x="2" y="9" width="4" height="12"></rect>
-            <circle cx="4" cy="4" r="2"></circle>
-          </svg>
-          <h3>No Results Yet</h3>
-          <p>Run a search to extract profile data from LinkedIn</p>
+          <p class="eyebrow">No rows</p>
+          <h3>No LinkedIn profiles loaded</h3>
+          <p>Run a LinkedIn search to populate the results table.</p>
         </div>
       `;
     }
 
-    const rows = this.currentResults.map((result, index) => `
-      <tr>
-        <td>${index + 1}</td>
-        <td>${Utils.escapeHtml(result.name || '-')}</td>
-        <td>${Utils.escapeHtml(result.headline || '-')}</td>
-        <td>${Utils.escapeHtml(result.company || '-')}</td>
-        <td>${Utils.escapeHtml(result.jobTitle || '-')}</td>
-        <td>${Utils.escapeHtml(result.location || '-')}</td>
-        <td>${result.connectionDegree || '-'}</td>
-        <td>${result.profileUrl ? `<a href="${result.profileUrl}" target="_blank" rel="noopener">View</a>` : '-'}</td>
-      </tr>
-    `).join('');
+    const headers = this.columns
+      .map(([key, label]) => {
+        const active = this.sortState.key === key;
+        const indicator = active ? (this.sortState.direction === 'asc' ? '↑' : '↓') : '·';
+        return `<th class="sortable ${active ? 'active' : ''}" data-li-sort="${key}">${label}<span class="sort-indicator">${indicator}</span></th>`;
+      })
+      .join('');
+
+    const rows = results
+      .map((row) => `
+        <tr>
+          <td><input class="table-checkbox" type="checkbox" data-li-row="${row.id}" ${this.selectedIds.has(row.id) ? 'checked' : ''}></td>
+          <td>${Utils.escapeHtml(row.name)}</td>
+          <td>${Utils.escapeHtml(row.headline)}</td>
+          <td>${Utils.escapeHtml(row.company)}</td>
+          <td>${Utils.escapeHtml(row.role)}</td>
+          <td>${Utils.escapeHtml(row.location)}</td>
+          <td>${Utils.escapeHtml(row.industry)}</td>
+          <td>${Utils.formatNumber(row.followerCount)}</td>
+          <td>${row.profileUrl ? `<a class="link" href="${Utils.escapeHtml(row.profileUrl)}" target="_blank" rel="noopener">Open</a>` : '-'}</td>
+        </tr>
+      `)
+      .join('');
 
     return `
-      <div class="results-info">
-        <span class="results-count"><strong>${this.currentResults.length}</strong> results found</span>
-        <button class="btn btn-success" id="liExportBtn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Export to Excel
-        </button>
-      </div>
-      <div class="table-container">
-        <table class="table">
+      <div class="table-wrap">
+        <table class="data-table">
           <thead>
             <tr>
-              <th>#</th>
-              <th>Name</th>
-              <th>Headline</th>
-              <th>Company</th>
-              <th>Job Title</th>
-              <th>Location</th>
-              <th>Connection</th>
-              <th>Profile</th>
+              <th><input class="table-checkbox" id="liSelectAll" type="checkbox" ${results.every((row) => this.selectedIds.has(row.id)) ? 'checked' : ''}></th>
+              ${headers}
             </tr>
           </thead>
-          <tbody>
-            ${rows}
-          </tbody>
+          <tbody>${rows}</tbody>
         </table>
       </div>
     `;
   },
 
-  setupEventListeners() {
-    const extractBtn = document.getElementById('liExtractBtn');
-    if (extractBtn) {
-      extractBtn.addEventListener('click', () => this.startExtraction());
-    }
+  exportConfig(selectedOnly, sheetName) {
+    const rows = selectedOnly ? Utils.pickExportRows(this.getFilteredResults(), this.selectedIds) : this.getFilteredResults();
+    return {
+      data: rows.map((row) => ({
+        Name: row.name,
+        Headline: row.headline,
+        Company: row.company,
+        Role: row.role,
+        Location: row.location,
+        Industry: row.industry,
+        Followers: row.followerCount,
+        ProfileURL: row.profileUrl,
+      })),
+      source: 'linkedin',
+      mode: selectedOnly ? 'selected' : 'all',
+      sheetName: sheetName || 'LinkedIn Results',
+    };
+  },
 
-    const exportBtn = document.getElementById('liExportBtn');
-    if (exportBtn) {
-      exportBtn.addEventListener('click', () => {
-        Export.exportLinkedInResults(this.currentResults);
+  syncFormState() {
+    this.formState = {
+      name: document.getElementById('liName').value.trim(),
+      company: document.getElementById('liCompany').value.trim(),
+      role: document.getElementById('liRole').value.trim(),
+      location: document.getElementById('liLocation').value.trim(),
+      industry: document.getElementById('liIndustry').value.trim(),
+      maxResults: Number(document.getElementById('liMaxResults').value) || 10,
+    };
+  },
+
+  setupEventListeners() {
+    document.getElementById('liRunSearch')?.addEventListener('click', () => this.startExtraction());
+    document.getElementById('liResetForm')?.addEventListener('click', () => {
+      this.formState = { name: '', company: '', role: '', location: '', industry: '', maxResults: 10 };
+      this.postFilters = { search: '' };
+      this.configNotice = '';
+      this.renderInto(document.getElementById('content'));
+    });
+
+    document.getElementById('liPostSearch')?.addEventListener('input', (event) => {
+      this.postFilters.search = event.target.value;
+      this.renderInto(document.getElementById('content'));
+    });
+
+    document.getElementById('liExportSelected')?.addEventListener('click', async () => {
+      const sheetName = document.getElementById('liSheetName')?.value.trim();
+      await Export.exportRows(this.exportConfig(true, sheetName));
+    });
+
+    document.getElementById('liExportAll')?.addEventListener('click', async () => {
+      const sheetName = document.getElementById('liSheetName')?.value.trim();
+      await Export.exportRows(this.exportConfig(false, sheetName));
+    });
+
+    document.querySelectorAll('[data-li-sort]').forEach((header) => {
+      header.addEventListener('click', () => {
+        const key = header.dataset.liSort;
+        if (this.sortState.key === key) {
+          this.sortState.direction = this.sortState.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.sortState = { key, direction: 'asc' };
+        }
+        this.renderInto(document.getElementById('content'));
       });
-    }
+    });
+
+    document.getElementById('liSelectAll')?.addEventListener('change', (event) => {
+      const rows = this.getFilteredResults();
+      if (event.target.checked) {
+        rows.forEach((row) => this.selectedIds.add(row.id));
+      } else {
+        rows.forEach((row) => this.selectedIds.delete(row.id));
+      }
+      this.renderInto(document.getElementById('content'));
+    });
+
+    document.querySelectorAll('[data-li-row]').forEach((checkbox) => {
+      checkbox.addEventListener('change', (event) => {
+        const rowId = event.target.dataset.liRow;
+        if (event.target.checked) {
+          this.selectedIds.add(rowId);
+        } else {
+          this.selectedIds.delete(rowId);
+        }
+        this.renderInto(document.getElementById('content'));
+      });
+    });
   },
 
   async startExtraction() {
-    const name = document.getElementById('liName')?.value?.trim();
-    const company = document.getElementById('liCompany')?.value?.trim();
-    const role = document.getElementById('liRole')?.value?.trim();
-    const location = document.getElementById('liLocation')?.value?.trim();
-    const industry = document.getElementById('liIndustry')?.value?.trim();
-
-    const params = { name, company, role, location, industry };
-
-    if (!name && !company && !role && !location && !industry) {
-      Utils.showToast('Please enter at least one search parameter', 'error');
+    const settings = Utils.getSettings();
+    if (!settings.linkedinEnabled) {
+      Utils.showToast('LinkedIn is disabled', 'Enable the platform from Settings first.', 'error');
       return;
     }
 
+    this.syncFormState();
+    this.configNotice = '';
+
+    if (!Object.values(this.formState).some((value) => value && value !== 10)) {
+      Utils.showToast('Missing search criteria', 'Enter at least one LinkedIn search field.', 'error');
+      return;
+    }
+
+    this.isLoading = true;
+    this.renderInto(document.getElementById('content'));
+
+    App.Progress.start('LinkedIn extraction', 10, 'Submitting LinkedIn search');
+    const pulse = window.setInterval(() => {
+      App.Progress.tick('Waiting for live profile results');
+    }, 500);
+
     try {
-      ProgressModal.show('Searching LinkedIn...', 15);
-      
-      const response = await this.extract(params);
-      
-      ProgressModal.hide();
-      
-      if (response.results) {
-        this.currentResults = response.results;
-        Utils.showToast(`Found ${response.results.length} profiles`, 'success');
-        this.renderResults();
-      }
+      const response = await Api.searchLinkedIn(this.formState);
+      this.currentResults = response.results || [];
+      this.lastRun = response.extraction || {
+        id: Date.now(),
+        timestamp: new Date().toISOString(),
+        source: 'LinkedIn',
+        count: this.currentResults.length,
+        params: this.formState,
+        results: this.currentResults,
+      };
+      this.selectedIds = new Set();
+      App.loadHistory(true).catch(() => {});
+      App.Progress.finish(this.currentResults.length || 1, `Loaded ${this.currentResults.length} profile rows`);
+      Utils.showToast('LinkedIn search complete', `${this.currentResults.length} live profiles matched.`, 'success');
     } catch (error) {
-      ProgressModal.hide();
-      Utils.showToast(error.message, 'error');
+      App.Progress.stop();
+
+      if (error.configRequired) {
+        this.currentResults = [];
+        this.selectedIds = new Set();
+        this.configNotice = 'LinkedIn API key required. Go to Settings → LinkedIn API Key to configure.';
+        Utils.showToast('LinkedIn API key required', 'Go to Settings to add your Proxycurl key.', 'warning');
+      } else {
+        Utils.showToast('LinkedIn extraction failed', error.message, 'error');
+      }
+    } finally {
+      window.clearInterval(pulse);
+      this.isLoading = false;
+      this.renderInto(document.getElementById('content'));
     }
   },
 
-  renderResults() {
-    const content = document.getElementById('content');
-    if (content) {
-      content.innerHTML = this.renderResultsTable();
-      this.setupEventListeners();
-    }
-  }
+  renderInto(container) {
+    if (!container) return;
+    container.innerHTML = this.renderPage();
+    this.setupEventListeners();
+  },
 };
 
 window.LinkedIn = LinkedIn;

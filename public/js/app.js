@@ -1,712 +1,1024 @@
-const ProgressModal = {
-  modal: null,
-  progressFill: null,
-  progressText: null,
-  progressCount: null,
-  progressEta: null,
-  total: 0,
-  current: 0,
-  startTime: null,
-
-  show(text, total = 100) {
-    this.modal = document.getElementById('progressModal');
-    this.progressFill = document.getElementById('progressFill');
-    this.progressText = document.getElementById('progressText');
-    this.progressCount = document.getElementById('progressCount');
-    this.progressEta = document.getElementById('progressEta');
-    
-    this.total = total;
-    this.current = 0;
-    this.startTime = Date.now();
-    
-    this.progressText.textContent = text;
-    this.progressCount.textContent = `0 / ${total}`;
-    this.progressFill.style.width = '0%';
-    this.progressEta.textContent = 'Estimated time: calculating...';
-    
-    this.modal.classList.add('open');
-  },
-
-  update(current, text) {
-    this.current = current;
-    
-    if (text) {
-      this.progressText.textContent = text;
-    }
-    
-    const percent = Math.round((current / this.total) * 100);
-    this.progressFill.style.width = `${percent}%`;
-    this.progressCount.textContent = `${current} / ${this.total}`;
-    
-    const elapsed = Date.now() - this.startTime;
-    const estimatedTotal = (elapsed / current) * this.total;
-    const remaining = Math.round((estimatedTotal - elapsed) / 1000);
-    
-    if (remaining > 0) {
-      this.progressEta.textContent = `Estimated time: ${remaining}s remaining`;
-    }
-  },
-
-  hide() {
-    if (this.modal) {
-      this.modal.classList.remove('open');
-    }
-  }
-};
-
 const App = {
-  init() {
-    this.loadTheme();
-    this.initRouter();
-    this.initUI();
-    this.setupEventListeners();
+  historyCache: [],
+  activityCache: [],
+  historyPreviewId: null,
+  currentUser: null,
+  publicRoutes: new Set(['/login', '/register']),
+  pageMeta: {
+    '/': { title: 'Dashboard', eyebrow: 'Operations' },
+    '/google-maps': { title: 'Google Maps', eyebrow: 'Extractor' },
+    '/linkedin': { title: 'LinkedIn', eyebrow: 'Extractor' },
+    '/history': { title: 'History', eyebrow: 'Archive' },
+    '/settings': { title: 'Settings', eyebrow: 'Configuration' },
+    '/login': { title: 'Login', eyebrow: 'Authentication' },
+    '/register': { title: 'Register', eyebrow: 'Authentication' },
   },
 
-  loadTheme() {
-    const settings = Utils.getSettings();
-    document.documentElement.setAttribute('data-theme', settings.theme || 'dark');
+  Progress: {
+    total: 0,
+    current: 0,
+    title: '',
+    timerStartedAt: 0,
+    currentPlace: '',
+
+    start(title, total, description) {
+      this.total = Math.max(total, 1);
+      this.current = 0;
+      this.title = title;
+      this.currentPlace = '';
+      this.timerStartedAt = Date.now();
+      document.getElementById('progressTitle').textContent = title;
+      document.getElementById('progressText').textContent = description || 'Preparing request';
+      document.getElementById('progressCurrentPlace').textContent = 'Waiting for first record';
+      document.getElementById('progressFill').style.width = '0%';
+      document.getElementById('progressCount').textContent = `0 / ${this.total}`;
+      document.getElementById('progressEta').textContent = 'ETA calculating';
+      document.getElementById('progressDialog').classList.add('open');
+    },
+
+    tick(description) {
+      this.current = Math.min(this.current + 1, Math.max(this.total - 1, 1));
+      this.update(description);
+    },
+
+    update(description, options = {}) {
+      if (Number.isFinite(options.current)) {
+        this.current = options.current;
+      }
+      if (Number.isFinite(options.total) && options.total > 0) {
+        this.total = options.total;
+      }
+
+      const percent = Utils.clamp(Math.round((this.current / this.total) * 100), 0, 100);
+      document.getElementById('progressFill').style.width = `${percent}%`;
+      document.getElementById('progressCount').textContent = `${this.current} / ${this.total}`;
+      if (description) {
+        document.getElementById('progressText').textContent = description;
+      }
+
+      const explicitEta = Number.isFinite(options.eta) ? options.eta : null;
+      const elapsed = (Date.now() - this.timerStartedAt) / 1000;
+      const computedEta = this.current > 0 ? Math.max(Math.round((elapsed / this.current) * (this.total - this.current)), 0) : 0;
+      const eta = explicitEta ?? computedEta;
+      document.getElementById('progressEta').textContent = eta ? `ETA ~${eta}s` : 'Finalizing';
+
+      const currentPlace = options.currentPlace || this.currentPlace;
+      this.currentPlace = currentPlace || '';
+      document.getElementById('progressCurrentPlace').textContent = this.currentPlace
+        ? `Current place: ${this.currentPlace}`
+        : 'Waiting for first record';
+    },
+
+    finish(finalCount, description) {
+      this.current = Math.max(finalCount, this.total);
+      this.total = Math.max(finalCount, this.total);
+      this.update(description || 'Completed', { current: this.current, total: this.total, eta: 0 });
+      document.getElementById('progressCount').textContent = `${finalCount} / ${Math.max(finalCount, this.total)}`;
+      window.setTimeout(() => this.stop(), 450);
+    },
+
+    stop() {
+      document.getElementById('progressDialog').classList.remove('open');
+    },
   },
 
-  initRouter() {
-    Router.register('/', () => this.renderDashboard());
-    Router.register('/google-maps', () => this.renderGoogleMaps());
-    Router.register('/linkedin', () => this.renderLinkedIn());
-    Router.register('/history', () => this.renderHistory());
-    Router.register('/settings', () => this.renderSettings());
-    
+  async init() {
+    this.bindShellEvents();
+    this.registerRoutes();
+    await this.restoreSession();
+    if (this.currentUser) {
+      await this.syncSettings();
+    }
+    this.applyTheme();
+    this.refreshUserUI();
+    this.routeAfterAuthBootstrap();
     Router.init();
   },
 
-  initUI() {
-    const sidebar = document.getElementById('sidebar');
-    const sidebarToggle = document.getElementById('sidebarToggle');
-    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-    const themeToggle = document.getElementById('themeToggle');
-    const progressModalClose = document.getElementById('progressModalClose');
+  isAuthenticated() {
+    return Boolean(this.currentUser && Utils.getAuthToken());
+  },
 
-    if (mobileMenuBtn && sidebar) {
-      mobileMenuBtn.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
+  async restoreSession() {
+    const token = Utils.getAuthToken();
+    const cachedUser = Utils.getCurrentUser();
+
+    if (!token) {
+      this.currentUser = null;
+      return null;
+    }
+
+    try {
+      const response = await Api.getCurrentUser();
+      this.currentUser = response.user;
+      Utils.saveCurrentUser(response.user);
+      return response.user;
+    } catch (error) {
+      this.currentUser = null;
+      Utils.clearSession();
+      if (cachedUser) {
+        Utils.showToast('Session expired', 'Please log in again.', 'warning');
+      }
+      return null;
+    }
+  },
+
+  routeAfterAuthBootstrap() {
+    const currentRoute = Router.current();
+    if (!this.isAuthenticated() && !this.publicRoutes.has(currentRoute)) {
+      Router.navigate('/login');
+      return;
+    }
+    if (this.isAuthenticated() && this.publicRoutes.has(currentRoute)) {
+      Router.navigate('/');
+    }
+  },
+
+  async syncSettings() {
+    try {
+      const serverSettings = await Api.getSettings();
+      const localSettings = Utils.getSettings();
+      const theme = Utils.getThemePreference() || serverSettings.theme || localSettings.theme;
+      Utils.saveSettings({
+        ...localSettings,
+        ...serverSettings,
+        theme,
+        googleMapsApiKey: serverSettings.googleMapsApiKey || '',
+        linkedinApiKey: serverSettings.linkedinApiKey || '',
+        validations: {
+          ...localSettings.validations,
+          ...serverSettings.validations,
+          googleMaps: {
+            ...(localSettings.validations?.googleMaps || {}),
+            ...(serverSettings.validations?.googleMaps || {}),
+          },
+          linkedin: {
+            ...(localSettings.validations?.linkedin || {}),
+            ...(serverSettings.validations?.linkedin || {}),
+          },
+        },
       });
+    } catch (error) {
+      Utils.getSettings();
+    }
+  },
+
+  async loadHistory(force = false) {
+    if (this.historyCache.length && !force) {
+      return this.historyCache;
     }
 
-    if (sidebarToggle && sidebar) {
-      sidebarToggle.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-      });
+    try {
+      this.historyCache = await Api.getHistory();
+    } catch (error) {
+      this.historyCache = [];
+      Utils.showToast('History unavailable', 'Could not load extraction history from the server.', 'warning');
     }
 
-    if (themeToggle) {
-      themeToggle.addEventListener('click', () => this.toggleTheme());
+    return this.historyCache;
+  },
+
+  async loadActivity(force = false) {
+    if (this.activityCache.length && !force) {
+      return this.activityCache;
     }
 
-    if (progressModalClose) {
-      progressModalClose.addEventListener('click', () => {
-        ProgressModal.hide();
-      });
+    try {
+      this.activityCache = await Api.getActivity();
+    } catch (error) {
+      this.activityCache = [];
     }
 
-    document.addEventListener('click', (e) => {
-      if (e.target === document.querySelector('.modal-backdrop')) {
-        ProgressModal.hide();
+    return this.activityCache;
+  },
+
+  bindShellEvents() {
+    document.getElementById('menuToggle').addEventListener('click', () => this.openSidebar());
+    document.getElementById('sidebarClose').addEventListener('click', () => this.closeSidebar());
+    document.getElementById('appBackdrop').addEventListener('click', () => this.closeSidebar());
+    document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
+    document.getElementById('progressClose').addEventListener('click', () => this.Progress.stop());
+    document.getElementById('userLogout')?.addEventListener('click', () => this.logout());
+    document.getElementById('sidebarLogout')?.addEventListener('click', () => this.logout());
+
+    document.getElementById('sidebarNav').addEventListener('click', (event) => {
+      if (event.target.closest('a')) {
+        this.closeSidebar();
       }
     });
+  },
+
+  openSidebar() {
+    document.querySelector('.app-shell').classList.add('sidebar-open');
+  },
+
+  closeSidebar() {
+    document.querySelector('.app-shell').classList.remove('sidebar-open');
+  },
+
+  applyTheme() {
+    document.documentElement.setAttribute('data-theme', Utils.getThemePreference());
   },
 
   toggleTheme() {
-    const current = document.documentElement.getAttribute('data-theme');
-    const next = current === 'dark' ? 'light' : 'dark';
-    
-    document.documentElement.setAttribute('data-theme', next);
-    
-    const settings = Utils.getSettings();
-    settings.theme = next;
-    Utils.saveSettings(settings);
+    const nextTheme = Utils.getThemePreference() === 'dark' ? 'light' : 'dark';
+    Utils.saveThemePreference(nextTheme);
+    this.applyTheme();
+    if (this.isAuthenticated()) {
+      Api.saveSettings({ ...Utils.getSettings(), theme: nextTheme }).catch(() => {});
+    }
   },
 
-  setupEventListeners() {
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-      item.addEventListener('click', (e) => {
-        if (window.innerWidth <= 768) {
-          document.getElementById('sidebar').classList.remove('open');
-        }
+  setPageMeta(route) {
+    const meta = this.pageMeta[route] || this.pageMeta['/'];
+    document.getElementById('pageTitle').textContent = meta.title;
+    document.getElementById('pageEyebrow').textContent = meta.eyebrow;
+    Router.updateNav(route);
+  },
+
+  setAuthLayout(enabled) {
+    document.body.classList.toggle('auth-route', enabled);
+  },
+
+  refreshUserUI() {
+    const user = this.currentUser || Utils.getCurrentUser();
+    const initials = Utils.getInitials(user?.fullName);
+    const fullName = user?.fullName || 'Guest';
+    const email = user?.email || '';
+
+    const avatarNodes = document.querySelectorAll('[data-user-avatar]');
+    const nameNodes = document.querySelectorAll('[data-user-name]');
+    const emailNodes = document.querySelectorAll('[data-user-email]');
+    const logoutNodes = [document.getElementById('userLogout'), document.getElementById('sidebarLogout')].filter(Boolean);
+
+    avatarNodes.forEach((node) => { node.textContent = initials; });
+    nameNodes.forEach((node) => { node.textContent = fullName; });
+    emailNodes.forEach((node) => { node.textContent = email; });
+    logoutNodes.forEach((node) => { node.hidden = !this.isAuthenticated(); });
+  },
+
+  completeLogin(response) {
+    this.currentUser = response.user;
+    Utils.saveAuthToken(response.token);
+    Utils.saveCurrentUser(response.user);
+    this.historyCache = [];
+    this.activityCache = [];
+    this.refreshUserUI();
+    this.setAuthLayout(false);
+    Router.navigate('/');
+  },
+
+  async logout() {
+    try {
+      if (this.isAuthenticated()) {
+        await Api.logout();
+      }
+    } catch (error) {
+      // Client-side logout should still proceed.
+    }
+
+    this.currentUser = null;
+    this.historyCache = [];
+    this.activityCache = [];
+    Utils.clearSession();
+    this.refreshUserUI();
+    this.setAuthLayout(true);
+    Router.navigate('/login');
+  },
+
+  registerRoutes() {
+    Router.register('/', () => {
+      if (!this.isAuthenticated()) {
+        this.setAuthLayout(true);
+        Router.navigate('/login');
+        return;
+      }
+      this.setAuthLayout(false);
+      this.renderDashboard();
+    });
+    Router.register('/google-maps', () => {
+      if (!this.isAuthenticated()) {
+        this.setAuthLayout(true);
+        Router.navigate('/login');
+        return;
+      }
+      this.setAuthLayout(false);
+      this.setPageMeta('/google-maps');
+      GoogleMaps.renderInto(document.getElementById('content'));
+    });
+    Router.register('/linkedin', () => {
+      if (!this.isAuthenticated()) {
+        this.setAuthLayout(true);
+        Router.navigate('/login');
+        return;
+      }
+      this.setAuthLayout(false);
+      this.setPageMeta('/linkedin');
+      LinkedIn.renderInto(document.getElementById('content'));
+    });
+    Router.register('/history', () => {
+      if (!this.isAuthenticated()) {
+        this.setAuthLayout(true);
+        Router.navigate('/login');
+        return;
+      }
+      this.setAuthLayout(false);
+      this.renderHistory();
+    });
+    Router.register('/settings', () => {
+      if (!this.isAuthenticated()) {
+        this.setAuthLayout(true);
+        Router.navigate('/login');
+        return;
+      }
+      this.setAuthLayout(false);
+      this.renderSettings();
+    });
+    Router.register('/login', () => {
+      if (this.isAuthenticated()) {
+        Router.navigate('/');
+        return;
+      }
+      this.setAuthLayout(true);
+      this.setPageMeta('/login');
+      Auth.render('login');
+    });
+    Router.register('/register', () => {
+      if (this.isAuthenticated()) {
+        Router.navigate('/');
+        return;
+      }
+      this.setAuthLayout(true);
+      this.setPageMeta('/register');
+      Auth.render('register');
+    });
+  },
+
+  renderStatusCard(label, active, detail) {
+    return `
+      <article class="glass-card status-card ${active ? 'configured' : 'not-configured'}">
+        <div class="section-head">
+          <div>
+            <h3>${Utils.escapeHtml(label)}</h3>
+            <p>${Utils.escapeHtml(detail)}</p>
+          </div>
+        </div>
+        <div class="status-line">
+          <strong>${active ? `${Utils.escapeHtml(label)}: Active ✓` : 'Not configured'}</strong>
+          ${active ? '<span class="status-pill success">Configured</span>' : '<a class="button secondary" href="#/settings">Settings</a>'}
+        </div>
+      </article>
+    `;
+  },
+
+  renderSourceCard(source, runs, configured) {
+    if (!configured) {
+      return this.renderStatusCard(
+        source === 'Google Maps' ? 'Google Maps API' : 'LinkedIn API',
+        false,
+        source === 'Google Maps' ? 'Add a key and enable Google Maps in Settings.' : 'Add a LinkedIn API key in Settings.',
+      );
+    }
+
+    const totalRows = runs.reduce((sum, item) => sum + (item.count || 0), 0);
+    const latest = runs[0];
+    return `
+      <article class="glass-card status-card configured">
+        <div class="section-head">
+          <div>
+            <h3>${source === 'Google Maps' ? 'Google Maps API' : 'LinkedIn API'}</h3>
+            <p>${source === 'Google Maps' ? 'Live Places extraction is available.' : 'Live LinkedIn profile extraction is available.'}</p>
+          </div>
+        </div>
+        <div class="kpi-band compact">
+          <article class="stat-card">
+            <p class="eyebrow">Status</p>
+            <div class="stat-value">Active ✓</div>
+            <p class="muted">${source === 'Google Maps' ? 'Places API configured' : 'Proxycurl configured'}</p>
+          </article>
+          <article class="stat-card">
+            <p class="eyebrow">Runs</p>
+            <div class="stat-value">${runs.length}</div>
+            <p class="muted">Real extraction history only</p>
+          </article>
+          <article class="stat-card">
+            <p class="eyebrow">Rows</p>
+            <div class="stat-value">${totalRows}</div>
+            <p class="muted">Captured across all runs</p>
+          </article>
+          <article class="stat-card">
+            <p class="eyebrow">Last activity</p>
+            <div class="stat-value">${latest ? Utils.relativeTime(latest.timestamp) : 'None'}</div>
+            <p class="muted">${latest ? Utils.formatDate(latest.timestamp) : 'No runs yet'}</p>
+          </article>
+        </div>
+      </article>
+    `;
+  },
+
+  renderRecentExtractions(history) {
+    if (!history.length) {
+      return '<div class="notice">No real extractions have been recorded yet.</div>';
+    }
+
+    return `
+      <div class="history-list activity-feed">
+        ${history
+          .slice(0, 5)
+          .map(
+            (entry) => `
+              <article class="history-item">
+                <div class="history-main">
+                  <h4>${Utils.escapeHtml(entry.source)}</h4>
+                  <p>${entry.count} rows • ${Utils.formatDate(entry.timestamp)} • ${Utils.formatCurrencyInr(entry.cost?.inr || 0)}</p>
+                  <p class="history-meta">${Utils.escapeHtml(entry.params?.keyword || entry.params?.query || entry.params?.name || 'Extraction run')}</p>
+                </div>
+                <div class="inline-actions">
+                  <button class="button secondary" data-history-view="${entry.id}">View Results</button>
+                </div>
+              </article>
+            `,
+          )
+          .join('')}
+      </div>
+    `;
+  },
+
+  renderActivityList(activity = []) {
+    if (!activity.length) {
+      return '<div class="empty-state compact"><h3>No recent activity</h3><p>Logins, searches, and exports will appear here.</p></div>';
+    }
+
+    return `
+      <div class="history-list">
+        ${activity.map((entry) => `
+          <article class="history-item compact">
+            <div class="history-main">
+              <h4>${Utils.escapeHtml(entry.action)}</h4>
+              <p>${Utils.formatDate(entry.createdAt)}</p>
+              <p class="history-meta">${Utils.escapeHtml(this.describeActivity(entry))}</p>
+            </div>
+          </article>
+        `).join('')}
+      </div>
+    `;
+  },
+
+  describeActivity(entry) {
+    const details = entry.details || {};
+    if (entry.action === 'search') {
+      return `${details.source || 'Extractor'} • ${details.resultCount || 0} rows • ${details.keyword || 'Search'}${details.location ? ` • ${details.location}` : ''}`;
+    }
+    if (entry.action === 'export') {
+      return `${details.format?.toUpperCase() || 'Export'} • ${details.rowCount || 0} rows • ${details.filename || 'download'}`;
+    }
+    if (entry.action === 'login' || entry.action === 'logout' || entry.action === 'register') {
+      return details.email || this.currentUser?.email || 'Account activity';
+    }
+    return JSON.stringify(details || {});
+  },
+
+  async renderDashboard() {
+    this.setPageMeta('/');
+    const container = document.getElementById('content');
+    container.innerHTML = '<section class="glass-card"><div class="notice">Loading live extraction history…</div></section>';
+
+    const [history, activity] = await Promise.all([
+      this.loadHistory(true),
+      this.loadActivity(true),
+    ]);
+    const settings = Utils.getSettings();
+    const mapsRuns = history.filter((item) => item.source === 'Google Maps');
+    const linkedinRuns = history.filter((item) => item.source === 'LinkedIn');
+    const totalRecords = history.reduce((sum, item) => sum + (item.count || 0), 0);
+    const totalCostInr = history.reduce((sum, item) => sum + Number(item.cost?.inr || 0), 0);
+    const avgPerRun = history.length ? Math.round(totalRecords / history.length) : 0;
+    const googleConfigured = Utils.isGoogleMapsConfigured(settings);
+    const linkedinConfigured = Utils.isLinkedInConfigured(settings);
+    const categoryCounts = history.reduce((acc, entry) => {
+      const category = entry.params?.category || entry.params?.industry || entry.source;
+      const label = String(category || '').replace(/^kw:/i, '').replace(/_/g, ' ').trim();
+      if (label) {
+        acc[label] = (acc[label] || 0) + 1;
+      }
+      return acc;
+    }, {});
+    const topCategory = Object.entries(categoryCounts).sort((left, right) => right[1] - left[1])[0]?.[0] || 'None yet';
+
+    container.innerHTML = `
+      <section class="hero-panel">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div>
+              <p class="eyebrow">Production dashboard</p>
+              <h2 class="headline">Track live extraction activity and configuration status across both extractors.</h2>
+            </div>
+            <p class="lead">All dashboard metrics below are computed from the live server-side extraction history and the current saved settings.</p>
+            <div class="hero-actions">
+              <a class="button primary" href="#/google-maps">New Google Maps Search</a>
+              <a class="button secondary" href="#/linkedin">New LinkedIn Search</a>
+              <a class="button secondary" href="#/history">View History</a>
+            </div>
+          </div>
+          <div class="kpi-band">
+            <article class="stat-card">
+              <p class="eyebrow">Total extractions</p>
+              <div class="stat-value">${history.length}</div>
+              <p class="muted">Real runs from server memory</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Total records</p>
+              <div class="stat-value">${totalRecords}</div>
+              <p class="muted">Rows captured across all runs</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Avg / run</p>
+              <div class="stat-value">${avgPerRun}</div>
+              <p class="muted">Average rows per extraction</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Top category</p>
+              <div class="stat-value">${Utils.escapeHtml(topCategory)}</div>
+              <p class="muted">Most repeated search theme</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Session spend</p>
+              <div class="stat-value">${Utils.escapeHtml(Utils.formatCurrencyInr(totalCostInr))}</div>
+              <p class="muted">Across server-side history</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="stats-grid">
+        ${this.renderSourceCard('Google Maps', mapsRuns, googleConfigured)}
+        ${this.renderSourceCard('LinkedIn', linkedinRuns, linkedinConfigured)}
+        ${this.renderStatusCard('Google Maps API', googleConfigured, googleConfigured ? 'Places extraction is active.' : 'Add a Google Maps API key in Settings.')}
+        ${this.renderStatusCard('LinkedIn API', linkedinConfigured, linkedinConfigured ? 'Proxycurl extraction is active.' : 'Add a LinkedIn API key in Settings.')}
+      </section>
+
+      <section class="glass-card">
+        <div class="section-head">
+          <div>
+            <h3>Recent activity</h3>
+            <p>Latest extraction events from this session.</p>
+          </div>
+        </div>
+        ${this.renderRecentExtractions(history)}
+      </section>
+
+      <section class="glass-card">
+        <div class="section-head">
+          <div>
+            <h3>Activity</h3>
+            <p>Last 10 account events.</p>
+          </div>
+        </div>
+        ${this.renderActivityList(activity)}
+      </section>
+    `;
+
+    container.querySelectorAll('[data-history-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.historyPreviewId = Number(button.dataset.historyView);
+        Router.navigate('/history');
       });
     });
   },
 
-  setPageTitle(title) {
-    document.getElementById('pageTitle').textContent = title;
+  renderHistoryParams(entry) {
+    const params = entry.params || {};
+    const items = [];
+
+    if (params.keyword || params.query || params.name) {
+      items.push(`Keyword: ${params.keyword || params.query || params.name}`);
+    }
+    if (params.location) items.push(`Location: ${params.location}`);
+    if (params.category) items.push(`Category: ${String(params.category).replace(/^kw:/i, '').replace(/_/g, ' ')}`);
+    if (params.radius) items.push(`Radius: ${params.radius}m`);
+    if (params.maxResults) items.push(`Max: ${params.maxResults}`);
+
+    return items.map((item) => `<span class="chip">${Utils.escapeHtml(item)}</span>`).join('');
   },
 
-  renderDashboard() {
-    this.setPageTitle('Dashboard');
-    const history = Utils.getHistory();
-    
-    const googleMapsCount = history.filter(h => h.source === 'Google Maps').length;
-    const linkedInCount = history.filter(h => h.source === 'LinkedIn').length;
-    const totalExtractions = history.length;
-    const totalResults = history.reduce((sum, h) => sum + (h.count || 0), 0);
+  renderHistoryResultsPreview(entry) {
+    const rows = (entry?.results || []).slice(0, 8);
+    if (!entry) return '';
 
-    const content = document.getElementById('content');
-    content.innerHTML = `
-      <div class="fade-in">
-        <div class="dashboard-grid">
-          <div class="stat-card">
-            <div class="stat-icon blue">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">${totalExtractions}</div>
-              <div class="stat-label">Total Extractions</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon green">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                <circle cx="12" cy="10" r="3"></circle>
-              </svg>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">${googleMapsCount}</div>
-              <div class="stat-label">Google Maps Extractions</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon purple">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-                <rect x="2" y="9" width="4" height="12"></rect>
-                <circle cx="4" cy="4" r="2"></circle>
-              </svg>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">${linkedInCount}</div>
-              <div class="stat-label">LinkedIn Extractions</div>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon yellow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="16" y1="13" x2="8" y2="13"></line>
-                <line x1="16" y1="17" x2="8" y2="17"></line>
-              </svg>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">${totalResults}</div>
-              <div class="stat-label">Total Records Extracted</div>
-            </div>
+    const headers = entry.source === 'Google Maps'
+      ? ['Name', 'Address', 'Phone', 'Website']
+      : ['Name', 'Headline', 'Company', 'Location'];
+
+    const body = rows
+      .map((row) => {
+        const cells = entry.source === 'Google Maps'
+          ? [row.name, row.address, row.phone, row.website]
+          : [row.name, row.headline, row.company, row.location];
+
+        return `<tr>${cells.map((cell) => `<td>${Utils.escapeHtml(cell || '-')}</td>`).join('')}</tr>`;
+      })
+      .join('');
+
+    return `
+      <section class="glass-card history-preview-panel">
+        <div class="section-head">
+          <div>
+            <h3>Stored results preview</h3>
+            <p>Showing ${rows.length} of ${entry.count} rows from the saved extraction.</p>
           </div>
         </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Quick Actions</h2>
-              <p class="card-subtitle">Start a new data extraction</p>
-            </div>
-          </div>
-          <div class="quick-actions">
-            <a href="#/google-maps" class="quick-action">
-              <div class="quick-action-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                  <circle cx="12" cy="10" r="3"></circle>
-                </svg>
-              </div>
-              <div class="quick-action-text">
-                <h4>Google Maps</h4>
-                <p>Extract business listings</p>
-              </div>
-            </a>
-            <a href="#/linkedin" class="quick-action">
-              <div class="quick-action-icon" style="background: var(--accent-purple);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-                  <rect x="2" y="9" width="4" height="12"></rect>
-                  <circle cx="4" cy="4" r="2"></circle>
-                </svg>
-              </div>
-              <div class="quick-action-text">
-                <h4>LinkedIn</h4>
-                <p>Search profiles</p>
-              </div>
-            </a>
-            <a href="#/history" class="quick-action">
-              <div class="quick-action-icon" style="background: var(--accent-success);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <polyline points="12 6 12 12 16 14"></polyline>
-                </svg>
-              </div>
-              <div class="quick-action-text">
-                <h4>History</h4>
-                <p>View past extractions</p>
-              </div>
-            </a>
-            <a href="#/settings" class="quick-action">
-              <div class="quick-action-icon" style="background: var(--accent-warning);">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-                </svg>
-              </div>
-              <div class="quick-action-text">
-                <h4>Settings</h4>
-                <p>Configure API keys</p>
-              </div>
-            </a>
-          </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>${headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead>
+            <tbody>${body}</tbody>
+          </table>
         </div>
-      </div>
+      </section>
     `;
   },
 
-  renderGoogleMaps() {
-    this.setPageTitle('Google Maps Extractor');
-    
-    const content = document.getElementById('content');
-    content.innerHTML = `
-      <div class="fade-in slide-up">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <h2 class="card-title">Search Businesses</h2>
-              <p class="card-subtitle">Extract business data from Google Maps Places API</p>
-            </div>
-          </div>
-          <div id="gmForm">
-            ${GoogleMaps.renderSearchForm()}
-          </div>
+  renderHistoryItem(entry) {
+    return `
+      <article class="history-item">
+        <div class="history-main">
+          <h4>${Utils.escapeHtml(entry.source)}</h4>
+          <p>${entry.count} rows • ${Utils.formatDate(entry.timestamp)} • Cost ${Utils.formatCurrencyInr(entry.cost?.inr || 0)}</p>
+          <p class="history-meta">${Utils.escapeHtml(entry.params?.keyword || entry.params?.query || entry.params?.name || 'Saved extraction run')}</p>
+          <div class="chip-list compact">${this.renderHistoryParams(entry)}</div>
         </div>
-        <div style="margin-top: 24px;" id="gmResults">
-          ${GoogleMaps.renderResultsTable()}
+        <div class="inline-actions">
+          <button class="button secondary" data-history-rerun="${entry.id}">Re-run</button>
+          <button class="button secondary" data-history-view="${entry.id}">View Results</button>
+          <button class="button ghost" data-history-export="${entry.id}">Export</button>
+          <button class="button danger" data-history-delete="${entry.id}">Delete</button>
         </div>
-      </div>
+      </article>
     `;
-    
-    GoogleMaps.setupEventListeners();
   },
 
-  renderLinkedIn() {
-    this.setPageTitle('LinkedIn Extractor');
-    
-    const content = document.getElementById('content');
-    content.innerHTML = `
-      <div class="fade-in slide-up">
-        <div class="card">
-          <div class="card-header">
+  async renderHistory() {
+    this.setPageMeta('/history');
+    const container = document.getElementById('content');
+    container.innerHTML = '<section class="glass-card"><div class="notice">Loading live extraction history…</div></section>';
+
+    const history = await this.loadHistory(true);
+    const previewEntry = this.getHistoryEntry(this.historyPreviewId);
+
+    container.innerHTML = `
+      <section class="hero-panel">
+        <div class="hero-grid">
+          <div class="hero-copy">
             <div>
-              <h2 class="card-title">Search Profiles</h2>
-              <p class="card-subtitle">Find professional profiles on LinkedIn</p>
+              <p class="eyebrow">Saved extractions</p>
+              <h2 class="headline">Review earlier runs, reopen result sets, or export again.</h2>
             </div>
+            <p class="lead">This view reads the live server-side extraction history for the current session.</p>
           </div>
-          <div id="liForm">
-            ${LinkedIn.renderSearchForm()}
+          <div class="kpi-band">
+            <article class="stat-card">
+              <p class="eyebrow">Saved runs</p>
+              <div class="stat-value">${history.length}</div>
+              <p class="muted">Most recent 50 entries retained</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Total spend</p>
+              <div class="stat-value">${Utils.escapeHtml(Utils.formatCurrencyInr(history.reduce((sum, item) => sum + Number(item.cost?.inr || 0), 0)))}</div>
+              <p class="muted">Computed from extraction history</p>
+            </article>
           </div>
         </div>
-        <div style="margin-top: 24px;" id="liResults">
-          ${LinkedIn.renderResultsTable()}
+      </section>
+      <section class="glass-card">
+        <div class="section-head">
+          <div>
+            <h3>History list</h3>
+            <p>Reopen a result set in the extractor or remove stale runs.</p>
+          </div>
         </div>
-      </div>
+        ${
+          history.length
+            ? `<div class="history-list">${history.map((entry) => this.renderHistoryItem(entry)).join('')}</div>`
+            : '<div class="empty-state"><h3>No history yet</h3><p>Extraction runs will appear here after you search.</p></div>'
+        }
+      </section>
+      ${previewEntry ? this.renderHistoryResultsPreview(previewEntry) : ''}
     `;
-    
-    LinkedIn.setupEventListeners();
+
+    container.querySelectorAll('[data-history-rerun]').forEach((button) => {
+      button.addEventListener('click', () => this.rerunHistoryItem(button.dataset.historyRerun));
+    });
+
+    container.querySelectorAll('[data-history-view]').forEach((button) => {
+      button.addEventListener('click', () => {
+        this.historyPreviewId = Number(button.dataset.historyView);
+        this.renderHistory();
+      });
+    });
+
+    container.querySelectorAll('[data-history-export]').forEach((button) => {
+      button.addEventListener('click', () => this.exportHistoryItem(button.dataset.historyExport));
+    });
+
+    container.querySelectorAll('[data-history-delete]').forEach((button) => {
+      button.addEventListener('click', () => this.deleteHistoryItem(button.dataset.historyDelete));
+    });
   },
 
-  renderHistory() {
-    this.setPageTitle('Extraction History');
-    const history = Utils.getHistory();
+  getHistoryEntry(entryId) {
+    return this.historyCache.find((item) => String(item.id) === String(entryId));
+  },
 
-    if (history.length === 0) {
-      document.getElementById('content').innerHTML = `
-        <div class="fade-in">
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            <h3>No History Yet</h3>
-            <p>Your extraction history will appear here</p>
-            <a href="#/google-maps" class="btn btn-primary">Start Extraction</a>
-          </div>
-        </div>
-      `;
+  rerunHistoryItem(entryId) {
+    const entry = this.getHistoryEntry(entryId);
+    if (!entry) return;
+
+    if (entry.source === 'Google Maps') {
+      GoogleMaps.loadSearchFromHistory(entry);
+      Router.navigate('/google-maps');
+    } else {
+      LinkedIn.setHistoryPreview(entry);
+      Router.navigate('/linkedin');
+    }
+  },
+
+  async exportHistoryItem(entryId) {
+    const entry = this.getHistoryEntry(entryId);
+    if (!entry) return;
+
+    if (entry.source === 'Google Maps') {
+      await Export.exportRows({
+        data: GoogleMaps.buildExportRows(entry.results || [], GoogleMaps.getVisibleColumns()),
+        source: 'google_maps',
+        mode: 'all',
+        sheetName: 'Google Maps Results',
+      });
       return;
     }
 
-    const historyItems = history.map(item => {
-      const isGoogle = item.source === 'Google Maps';
-      return `
-        <div class="history-item">
-          <div class="history-icon ${isGoogle ? 'google' : 'linkedin'}">
-            ${isGoogle ? `
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                <circle cx="12" cy="10" r="3"></circle>
-              </svg>
-            ` : `
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path>
-                <rect x="2" y="9" width="4" height="12"></rect>
-                <circle cx="4" cy="4" r="2"></circle>
-              </svg>
-            `}
-          </div>
-          <div class="history-content">
-            <div class="history-source">${item.source}</div>
-            <div class="history-meta">
-              ${Utils.formatDate(item.timestamp)} • ${item.count || 0} records
-            </div>
-          </div>
-          <div class="history-count">${item.count || 0}</div>
-          <div class="history-actions">
-            <button class="table-action-btn" data-view="${item.id}" title="View Results">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-            </button>
-            <button class="table-action-btn" data-export="${item.id}" title="Export">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-            </button>
-            <button class="table-action-btn" data-delete="${item.id}" title="Delete" style="color: var(--accent-error);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    document.getElementById('content').innerHTML = `
-      <div class="fade-in">
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">Extraction History</h2>
-            <span style="color: var(--text-secondary);">${history.length} extractions</span>
-          </div>
-          <div class="history-list">
-            ${historyItems}
-          </div>
-        </div>
-      </div>
-    `;
-
-    this.setupHistoryActions();
-  },
-
-  setupHistoryActions() {
-    document.querySelectorAll('[data-view]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(btn.dataset.view);
-        this.viewHistoryItem(id);
-      });
-    });
-
-    document.querySelectorAll('[data-export]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(btn.dataset.export);
-        this.exportHistoryItem(id);
-      });
-    });
-
-    document.querySelectorAll('[data-delete]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = parseInt(btn.dataset.delete);
-        this.deleteHistoryItem(id);
-      });
+    await Export.exportRows({
+      data: (entry.results || []).map((row) => ({
+        Name: row.name,
+        Headline: row.headline,
+        Company: row.company,
+        Role: row.role,
+        Location: row.location,
+        Industry: row.industry,
+        Followers: row.followerCount,
+        ProfileURL: row.profileUrl,
+      })),
+      source: 'linkedin',
+      mode: 'all',
+      sheetName: 'LinkedIn Results',
     });
   },
 
-  viewHistoryItem(id) {
-    const history = Utils.getHistory();
-    const item = history.find(h => h.id === id);
-    
-    if (!item || !item.results) return;
-
-    if (item.source === 'Google Maps') {
-      GoogleMaps.currentResults = item.results;
-      Router.navigate('/google-maps');
-      setTimeout(() => {
-        document.getElementById('content').innerHTML = `
-          <div class="fade-in slide-up">
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <h2 class="card-title">Viewing: ${item.source}</h2>
-                  <p class="card-subtitle">${Utils.formatDate(item.timestamp)} • ${item.results.length} records</p>
-                </div>
-                <button class="btn btn-ghost" onclick="Router.navigate('/history')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div style="margin-top: 24px;">
-              ${GoogleMaps.renderResultsTable()}
-            </div>
-          </div>
-        `;
-        GoogleMaps.setupEventListeners();
-      }, 100);
-    } else {
-      LinkedIn.currentResults = item.results;
-      Router.navigate('/linkedin');
-      setTimeout(() => {
-        document.getElementById('content').innerHTML = `
-          <div class="fade-in slide-up">
-            <div class="card">
-              <div class="card-header">
-                <div>
-                  <h2 class="card-title">Viewing: ${item.source}</h2>
-                  <p class="card-subtitle">${Utils.formatDate(item.timestamp)} • ${item.results.length} records</p>
-                </div>
-                <button class="btn btn-ghost" onclick="Router.navigate('/history')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div style="margin-top: 24px;">
-              ${LinkedIn.renderResultsTable()}
-            </div>
-          </div>
-        `;
-        LinkedIn.setupEventListeners();
-      }, 100);
+  async deleteHistoryItem(entryId) {
+    try {
+      await Api.deleteHistoryItem(entryId);
+      await this.loadHistory(true);
+      Utils.showToast('History entry deleted', 'The saved extraction run was removed.', 'success');
+      this.renderHistory();
+    } catch (error) {
+      Utils.showToast('Delete failed', error.message, 'error');
     }
   },
 
-  exportHistoryItem(id) {
-    const history = Utils.getHistory();
-    const item = history.find(h => h.id === id);
-    
-    if (!item || !item.results) return;
-
-    if (item.source === 'Google Maps') {
-      Export.exportGoogleMapsResults(item.results);
-    } else {
-      Export.exportLinkedInResults(item.results);
+  renderValidationBadge(serviceKey, settings) {
+    const validation = Utils.getValidationState(serviceKey, settings);
+    if (validation.status === true) {
+      return '<span class="validation-badge valid">✓ Valid</span>';
     }
+    if (validation.status === false) {
+      return '<span class="validation-badge invalid">✕ Invalid</span>';
+    }
+    return '<span class="validation-badge neutral">Not tested</span>';
   },
 
-  deleteHistoryItem(id) {
-    let history = Utils.getHistory();
-    history = history.filter(h => h.id !== id);
-    Utils.saveHistory(history);
-    Utils.showToast('History item deleted', 'success');
-    this.renderHistory();
+  renderValidationTimestamp(serviceKey, settings) {
+    const validation = Utils.getValidationState(serviceKey, settings);
+    if (!validation.lastValidatedAt) {
+      return '<span class="field-hint">Last validated: Never</span>';
+    }
+    return `<span class="field-hint">Last validated: ${Utils.escapeHtml(Utils.formatDate(validation.lastValidatedAt))}</span>`;
   },
 
   renderSettings() {
-    this.setPageTitle('Settings');
+    this.setPageMeta('/settings');
     const settings = Utils.getSettings();
-    
+    const savedKeys = [settings.googleMapsApiKey, settings.linkedinApiKey].filter(Boolean).length;
+
     document.getElementById('content').innerHTML = `
-      <div class="fade-in">
-        <div class="card">
-          <div class="settings-section">
-            <h3 class="settings-section-title">API Keys</h3>
-            
-            <div class="form-group">
-              <label class="form-label">Google Maps API Key</label>
-              <div class="api-key-input">
-                <input type="password" class="form-input" id="googleMapsApiKey" value="${settings.googleMapsApiKey || ''}" placeholder="Enter your Google Maps API key">
-                <button class="toggle-visibility" data-target="googleMapsApiKey">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                </button>
-              </div>
-              <p class="form-hint">Get your API key from <a href="https://console.cloud.google.com/google/maps-apis" target="_blank" rel="noopener">Google Cloud Console</a></p>
+      <section class="hero-panel">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div>
+              <p class="eyebrow">Persistent configuration</p>
+              <h2 class="headline">Store API keys, test connectivity, and control platform availability.</h2>
             </div>
-
-            <div class="form-group">
-              <label class="form-label">LinkedIn API Key (Optional)</label>
-              <div class="api-key-input">
-                <input type="password" class="form-input" id="linkedinApiKey" value="${settings.linkedinApiKey || ''}" placeholder="Enter your LinkedIn API credentials">
-                <button class="toggle-visibility" data-target="linkedinApiKey">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button class="btn btn-secondary" id="validateApiKeys">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                <polyline points="22 4 12 14.01 9 11.01"></polyline>
-              </svg>
-              Validate API Keys
-            </button>
+            <p class="lead">Settings persist locally and sync to the server so validation state and extractor availability stay consistent.</p>
           </div>
-
-          <div class="settings-section">
-            <h3 class="settings-section-title">Platform Settings</h3>
-            
-            <div class="settings-toggle">
-              <div class="toggle-info">
-                <h4>Google Maps</h4>
-                <p>Enable Google Maps extraction</p>
-              </div>
-              <div class="toggle-switch ${settings.googleMapsEnabled ? 'active' : ''}" id="gmEnabled" data-enabled="${settings.googleMapsEnabled !== false}"></div>
-            </div>
-
-            <div class="settings-toggle">
-              <div class="toggle-info">
-                <h4>LinkedIn</h4>
-                <p>Enable LinkedIn extraction</p>
-              </div>
-              <div class="toggle-switch ${settings.linkedinEnabled ? 'active' : ''}" id="liEnabled" data-enabled="${settings.linkedinEnabled !== false}"></div>
-            </div>
-          </div>
-
-          <div class="btn-group">
-            <button class="btn btn-primary" id="saveSettings">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-              Save Settings
-            </button>
-            <button class="btn btn-ghost" id="clearData">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              </svg>
-              Clear All Data
-            </button>
+          <div class="kpi-band">
+            <article class="stat-card">
+              <p class="eyebrow">Theme</p>
+              <div class="stat-value">${settings.theme}</div>
+              <p class="muted">Applied across sessions</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Maps enabled</p>
+              <div class="stat-value">${settings.googleMapsEnabled ? 'On' : 'Off'}</div>
+              <p class="muted">Controls live extraction</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">LinkedIn enabled</p>
+              <div class="stat-value">${settings.linkedinEnabled ? 'On' : 'Off'}</div>
+              <p class="muted">Controls live extraction</p>
+            </article>
+            <article class="stat-card">
+              <p class="eyebrow">Saved keys</p>
+              <div class="stat-value">${savedKeys}</div>
+              <p class="muted">Currently stored locally</p>
+            </article>
           </div>
         </div>
-      </div>
+      </section>
+
+      <section class="settings-grid">
+        <article class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>Google Maps</h3>
+              <p>Live Places API configuration and validation state.</p>
+            </div>
+            ${this.renderValidationBadge('googleMaps', settings)}
+          </div>
+          <div class="settings-stack">
+            <div class="field">
+              <label for="settingsGoogleKey">Google Maps API Key</label>
+              <input id="settingsGoogleKey" type="password" value="${Utils.escapeHtml(settings.googleMapsApiKey)}" autocomplete="off">
+              <span class="field-hint">Create or manage a key in <a class="link" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>.</span>
+              ${this.renderValidationTimestamp('googleMaps', settings)}
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>Enable Google Maps extractor</strong>
+                <p class="microcopy">Disables the live search form when turned off.</p>
+              </div>
+              <button class="toggle ${settings.googleMapsEnabled ? 'active' : ''}" id="settingsGoogleEnabled" type="button"></button>
+            </div>
+            <div class="inline-actions">
+              <button class="button primary" id="saveGoogleSettings">Save Google settings</button>
+              <button class="button secondary" id="testGoogleSettings">Test Google key</button>
+            </div>
+          </div>
+        </article>
+
+        <article class="glass-card">
+          <div class="section-head">
+            <div>
+              <h3>LinkedIn</h3>
+              <p>Production profile extraction using Proxycurl.</p>
+            </div>
+            ${this.renderValidationBadge('linkedin', settings)}
+          </div>
+          <div class="settings-stack">
+            <div class="field">
+              <label for="settingsLinkedInKey">LinkedIn API Key (Proxycurl)</label>
+              <input id="settingsLinkedInKey" type="password" value="${Utils.escapeHtml(settings.linkedinApiKey)}" autocomplete="off">
+              <span class="field-hint">Get a key from <a class="link" href="https://nubela.co/proxycurl" target="_blank" rel="noopener">Proxycurl</a>. Enter your Proxycurl API key to enable real LinkedIn profile extraction.</span>
+              ${this.renderValidationTimestamp('linkedin', settings)}
+            </div>
+            <div class="toggle-row">
+              <div>
+                <strong>Enable LinkedIn extractor</strong>
+                <p class="microcopy">Disables the live search form when turned off.</p>
+              </div>
+              <button class="toggle ${settings.linkedinEnabled ? 'active' : ''}" id="settingsLinkedInEnabled" type="button"></button>
+            </div>
+            <div class="inline-actions">
+              <button class="button primary" id="saveLinkedInSettings">Save LinkedIn settings</button>
+              <button class="button secondary" id="testLinkedInSettings">Test LinkedIn key</button>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="glass-card">
+        <div class="section-head">
+          <div>
+            <h3>Data reset</h3>
+            <p>Clear local settings if you want a fresh client configuration.</p>
+          </div>
+        </div>
+        <button class="button danger" id="clearLocalData">Clear localStorage data</button>
+      </section>
     `;
 
-    this.setupSettingsListeners();
+    this.bindSettingsEvents();
   },
 
-  setupSettingsListeners() {
-    const saveBtn = document.getElementById('saveSettings');
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () => this.saveSettings());
-    }
-
-    const clearBtn = document.getElementById('clearData');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => this.clearAllData());
-    }
-
-    const validateBtn = document.getElementById('validateApiKeys');
-    if (validateBtn) {
-      validateBtn.addEventListener('click', () => this.validateApiKeys());
-    }
-
-    const toggles = document.querySelectorAll('.toggle-switch');
-    toggles.forEach(toggle => {
-      toggle.addEventListener('click', () => {
-        const isEnabled = toggle.dataset.enabled === 'true';
-        toggle.dataset.enabled = !isEnabled;
-        toggle.classList.toggle('active', !isEnabled);
-      });
+  bindSettingsEvents() {
+    document.getElementById('settingsGoogleEnabled')?.addEventListener('click', (event) => {
+      event.currentTarget.classList.toggle('active');
+    });
+    document.getElementById('settingsLinkedInEnabled')?.addEventListener('click', (event) => {
+      event.currentTarget.classList.toggle('active');
     });
 
-    const visibilityBtns = document.querySelectorAll('.toggle-visibility');
-    visibilityBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = document.getElementById(btn.dataset.target);
-        if (target) {
-          target.type = target.type === 'password' ? 'text' : 'password';
-        }
+    document.getElementById('saveGoogleSettings')?.addEventListener('click', () => this.saveSettings('google'));
+    document.getElementById('saveLinkedInSettings')?.addEventListener('click', () => this.saveSettings('linkedin'));
+    document.getElementById('testGoogleSettings')?.addEventListener('click', () => this.testSettings('google'));
+    document.getElementById('testLinkedInSettings')?.addEventListener('click', () => this.testSettings('linkedin'));
+    document.getElementById('clearLocalData')?.addEventListener('click', () => {
+      const token = Utils.getAuthToken();
+      const user = Utils.getCurrentUser();
+      Utils.clearAll();
+      if (token) Utils.saveAuthToken(token);
+      if (user) Utils.saveCurrentUser(user);
+      Api.saveSettings(structuredClone(Utils.defaultSettings)).finally(() => {
+        Utils.showToast('Local data cleared', 'Settings were reset to defaults.', 'success');
+        this.applyTheme();
+        this.renderSettings();
       });
     });
   },
 
-  async saveSettings() {
-    const googleMapsApiKey = document.getElementById('googleMapsApiKey')?.value?.trim();
-    const linkedinApiKey = document.getElementById('linkedinApiKey')?.value?.trim();
-    const gmEnabled = document.getElementById('gmEnabled')?.dataset.enabled === 'true';
-    const liEnabled = document.getElementById('liEnabled')?.dataset.enabled === 'true';
+  collectSettings() {
+    const current = Utils.getSettings();
+    const googleMapsApiKey = document.getElementById('settingsGoogleKey').value.trim();
+    const linkedinApiKey = document.getElementById('settingsLinkedInKey').value.trim();
+    return {
+      ...current,
+      googleMapsApiKey,
+      linkedinApiKey,
+      googleMapsEnabled: document.getElementById('settingsGoogleEnabled').classList.contains('active'),
+      linkedinEnabled: document.getElementById('settingsLinkedInEnabled').classList.contains('active'),
+      validations: {
+        ...current.validations,
+        googleMaps: googleMapsApiKey === current.googleMapsApiKey
+          ? current.validations.googleMaps
+          : { status: null, lastValidatedAt: null },
+        linkedin: linkedinApiKey === current.linkedinApiKey
+          ? current.validations.linkedin
+          : { status: null, lastValidatedAt: null },
+      },
+    };
+  },
 
-    const settings = Utils.getSettings();
-    settings.googleMapsApiKey = googleMapsApiKey || '';
-    settings.linkedinApiKey = linkedinApiKey || '';
-    settings.googleMapsEnabled = gmEnabled;
-    settings.linkedinEnabled = liEnabled;
-
+  async saveSettings(mode) {
+    const settings = this.collectSettings();
     Utils.saveSettings(settings);
-    
+    this.applyTheme();
+
     try {
       await Api.saveSettings(settings);
-      Utils.showToast('Settings saved successfully', 'success');
+      Utils.showToast('Settings saved', `${mode === 'google' ? 'Google Maps' : 'LinkedIn'} settings persisted locally and on the server.`, 'success');
     } catch (error) {
-      Utils.showToast('Settings saved locally', 'success');
+      Utils.showToast('Saved locally', 'Server sync failed, but localStorage was updated.', 'warning');
     }
   },
 
-  async validateApiKeys() {
-    const apiKey = document.getElementById('googleMapsApiKey')?.value?.trim();
-    
-    if (!apiKey) {
-      Utils.showToast('Please enter a Google Maps API key', 'error');
-      return;
-    }
+  updateValidationState(serviceKey, valid, lastValidatedAt) {
+    const settings = Utils.getSettings();
+    settings.validations = settings.validations || {};
+    settings.validations[serviceKey] = {
+      status: valid,
+      lastValidatedAt: lastValidatedAt || new Date().toISOString(),
+    };
+    Utils.saveSettings(settings);
+    return settings;
+  },
 
-    const btn = document.getElementById('validateApiKeys');
-    btn.disabled = true;
-    btn.innerHTML = '<div class="spinner"></div> Validating...';
+  async testSettings(mode) {
+    const settings = this.collectSettings();
+    Utils.saveSettings(settings);
 
     try {
-      const result = await Api.validateGoogleApiKey(apiKey);
-      
-      if (result.valid) {
-        Utils.showToast('API key is valid', 'success');
+      if (mode === 'google') {
+        const result = await Api.validateGoogleApiKey(settings.googleMapsApiKey);
+        if (!result.valid) {
+          throw new Error(result.error || 'Google validation failed');
+        }
+        this.updateValidationState('googleMaps', true, result.lastValidatedAt);
+        Utils.showToast('Google key verified', 'The proxy successfully reached Google Places.', 'success');
       } else {
-        Utils.showToast('API key is invalid: ' + result.error, 'error');
+        const result = await Api.validateLinkedInApiKey(settings.linkedinApiKey);
+        if (!result.valid) {
+          throw new Error(result.error || 'LinkedIn validation failed');
+        }
+        this.updateValidationState('linkedin', true, result.lastValidatedAt);
+        Utils.showToast('LinkedIn key verified', result.message || 'The server successfully reached Proxycurl.', 'success');
       }
     } catch (error) {
-      Utils.showToast('Validation failed: ' + error.message, 'error');
+      this.updateValidationState(mode === 'google' ? 'googleMaps' : 'linkedin', false, new Date().toISOString());
+      Utils.showToast('Connection test failed', error.message, 'error');
     } finally {
-      btn.disabled = false;
-      btn.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-          <polyline points="22 4 12 14.01 9 11.01"></polyline>
-        </svg>
-        Validate API Keys
-      `;
-    }
-  },
-
-  clearAllData() {
-    if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
-      localStorage.removeItem('dataExtractorSettings');
-      localStorage.removeItem('dataExtractorHistory');
-      Utils.showToast('All data cleared', 'success');
       this.renderSettings();
     }
-  }
+  },
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   App.init();
 });
+
+window.App = App;

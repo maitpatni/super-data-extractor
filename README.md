@@ -1,167 +1,173 @@
-# Super Data Extractor
+# 🗺️ Super Data Extractor
 
-A browser-based data extraction web application for extracting business data from Google Maps and LinkedIn, with Excel export capabilities.
+> **Extract business leads from Google Maps and LinkedIn profiles — fast, free to self-host, and production-ready.**
 
-## Features
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Google Places API](https://img.shields.io/badge/Google%20Places-API%20(New)-4285F4)](https://developers.google.com/maps/documentation/places)
 
-- **Google Maps Extractor** - Search businesses by keyword, location, radius, category
-  - Extract: name, address, phone, website, rating, reviews, category, opening hours
-  - Pre-extraction filters (has phone, has website, minimum rating, has reviews)
-  - Pagination support for up to 60 results
+Super Data Extractor is a modern web app that lets you extract business data from **Google Maps** and **LinkedIn** profiles, filter results, and export to **Excel or CSV** — all from a clean, responsive UI.
 
-- **LinkedIn Extractor** - Search professional profiles
-  - Search by: name, company, role/title, location, industry
-  - Extract: full name, headline, company, job title, location, profile URL, connection degree
+---
 
-- **Modern UI** - Dark/light theme, responsive design, sidebar navigation
-- **Real-time Progress** - Progress bar with ETA during extraction
-- **History & Logs** - View past extractions, re-export, delete
-- **Excel Export** - Download results as .xlsx files with proper formatting
-- **Settings** - Configure API keys, enable/disable platforms
+## ✨ Features
 
-## Tech Stack
+### 🗺️ Google Maps Extractor
+- Search businesses by keyword, location, category, and radius
+- **Grid search strategy** — extracts 100–500+ results per search (bypasses Google's 20-result-per-page limit)
+- 70+ searchable categories (restaurants, hospitals, IT companies, digital marketing agencies, founders, and more)
+- **Location autocomplete** — city suggestions as you type
+- Filters: has phone, has website, open now, min rating, price level
+- Results table with sortable columns, row selection, star ratings, clickable phone/website
+- **Skip previously extracted** — avoids duplicate API charges on re-runs
+- Real-time progress with ETA during extraction
+- Cost estimate in **₹ INR** before and after each run
 
-- **Backend**: Node.js + Express
-- **Frontend**: Vanilla JavaScript (ES6+), HTML5, CSS3
-- **Excel Export**: SheetJS (xlsx library)
+### 🔗 LinkedIn Extractor
+- Search by name, company, role, location, industry
+- Powered by [Proxycurl API](https://nubela.co/proxycurl) — no OAuth needed, just an API key
+- Same table UI with sorting, filtering, and export
 
-## Quick Start
+### 📊 Dashboard
+- Real extraction stats (no dummy data)
+- API status cards (Google Maps, LinkedIn)
+- Session cost summary in ₹
+- Recent activity feed
+- Quick action buttons
+
+### 💾 Account System
+- Secure login/register with bcrypt password hashing
+- SQLite database — all searches, history, settings saved per account
+- Session-based auth with Bearer tokens
+
+### 📥 Export
+- **Excel (.xlsx)** — bold headers, alternating rows, auto column widths
+- **CSV** — clean and simple
+- Export selected rows or all results
+- Timestamped filenames: `google_maps_restaurant_mumbai_2026-04-18.xlsx`
+
+### ⚙️ Settings
+- Manage Google Maps API key + LinkedIn (Proxycurl) API key per account
+- API key validation with test button
+- Dark/light mode (persists across sessions)
+- Saved searches with one-click reload
+- Search templates for common use cases
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
+- Node.js 18+
+- A [Google Maps API key](https://developers.google.com/maps/documentation/places/web-service/get-api-key) with **Places API (New)** enabled
+- *(Optional)* A [Proxycurl API key](https://nubela.co/proxycurl) for LinkedIn extraction
 
-- Node.js (v14+) installed
-
-### Installation
+### Run Locally
 
 ```bash
-cd SuperDataExtractor
+# Clone the repo
+git clone https://github.com/maitpatni/super-data-extractor.git
+cd super-data-extractor
+
+# Install dependencies
 npm install
+
+# Start the server
+node server.js
+
+# Open in browser
+open http://localhost:3000
 ```
 
-### Run
+### Run with PM2 (Production)
 
 ```bash
-npm start
-# or
-node server.js
+npm install -g pm2
+pm2 start server.js --name super-data-extractor
+pm2 save
+pm2 startup
 ```
 
-The application will be available at http://localhost:3000
+Then proxy port `3000` via Nginx with SSL for a permanent domain.
 
-## Configuration
+---
 
-### Google Maps API
+## 🌐 Live Demo
 
+**Try it online:** *(link coming soon — self-hosted)*
+
+---
+
+## 🔑 API Keys Setup
+
+### Google Maps (Required)
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select existing)
-3. Enable "Places API" and "Maps JavaScript API"
-4. Go to "Credentials" and create an API key
-5. Copy the API key
+2. Enable **Places API (New)**
+3. Create an API key
+4. Add it in the app under **Settings → Google Maps API Key**
 
-### LinkedIn API
+> ⚠️ This app uses the **new** Places API (`places.googleapis.com/v1`). The legacy Maps API key will not work.
 
-Note: LinkedIn's API access is restricted. The app includes demo data for demonstration purposes. In production, you would need:
-- Official LinkedIn API access (requires partner approval)
-- OR web scraping solutions (within LinkedIn's ToS boundaries)
+### LinkedIn via Proxycurl (Optional)
+1. Sign up at [nubela.co/proxycurl](https://nubela.co/proxycurl)
+2. Get your API key
+3. Add it in **Settings → LinkedIn API Key**
 
-## Usage
+---
 
-### Google Maps Extraction
+## 🏗️ Tech Stack
 
-1. Navigate to Google Maps from sidebar
-2. Enter a keyword (e.g., "restaurants")
-3. Enter a location (e.g., "New York, NY")
-4. Optionally set category, max results, radius
-5. Configure pre-extraction filters
-6. Click "Start Extraction"
-7. View results in table
-8. Click "Export to Excel" to download
+| Layer | Tech |
+|-------|------|
+| Backend | Node.js + Express |
+| Frontend | Vanilla JS (ES6+), HTML5, CSS3 |
+| Database | SQLite (via better-sqlite3) |
+| Auth | bcryptjs + Bearer tokens |
+| Excel Export | SheetJS (xlsx) |
+| Maps API | Google Places API (New) |
+| LinkedIn API | Proxycurl |
 
-### LinkedIn Extraction
+---
 
-1. Navigate to LinkedIn from sidebar
-2. Enter search parameters
-3. Click "Start Extraction"
-4. View results in table
-5. Export to Excel
-
-### History
-
-1. Navigate to History from sidebar
-2. View past extractions with timestamps
-3. Click "View" to see results
-4. Click "Export" to re-export
-5. Click "Delete" to remove
-
-### Settings
-
-1. Navigate to Settings from sidebar
-2. Enter your Google Maps API key
-3. Toggle platform enable/disable
-4. Click "Save Settings"
-5. Optionally click "Validate API Keys"
-
-## Project Structure
+## 📁 Project Structure
 
 ```
-SuperDataExtractor/
-├── server.js              # Express server with API routes
-├── package.json          # Dependencies
+super-data-extractor/
+├── server.js          # Express backend + API proxy
+├── database.js        # SQLite schema + queries
 ├── public/
-│   ├── index.html      # Main HTML file
-│   ├── css/
-│   │   └── styles.css # Main styles
+│   ├── index.html     # Main SPA shell
+│   ├── css/styles.css # UI styles
 │   └── js/
-│       ├── app.js       # Main application
-│       ├── router.js   # Client-side routing
-│       ├── api.js     # API client
-│       ├── googleMaps.js  # Google Maps extractor
-│       ├── linkedin.js  # LinkedIn extractor
-│       ├── export.js  # Excel export
-│       └── utils.js   # Utilities
-├── README.md          # This file
-└── SPEC.md           # Project specification
+│       ├── app.js         # App bootstrap + routing
+│       ├── auth.js        # Login/register UI
+│       ├── googleMaps.js  # Maps extractor UI
+│       ├── linkedin.js    # LinkedIn extractor UI
+│       ├── export.js      # Excel/CSV export
+│       ├── api.js         # API client
+│       ├── router.js      # Client-side router
+│       └── utils.js       # Shared utilities
+└── data/
+    └── sde.db         # SQLite database (auto-created)
 ```
 
-## API Endpoints
+---
 
-| Method | Endpoint | Description |
-|--------|---------|-----------|
-| GET | `/api/settings` | Get settings |
-| POST | `/api/settings` | Save settings |
-| POST | `/api/settings/validate-google` | Validate Google API key |
-| POST | `/api/google-maps/search` | Search Google Maps |
-| POST | `/api/linkedin/search` | Search LinkedIn profiles |
-| GET | `/api/history` | Get extraction history |
-| DELETE | `/api/history/:id` | Delete history item |
-| POST | `/api/export` | Export to Excel |
+## 🛡️ Privacy & Security
 
-## Data Stored
+- API keys stored in your own database (never sent to third parties)
+- All Google Maps API calls are server-side proxied
+- Passwords hashed with bcrypt
+- No external analytics or tracking
 
-- Settings are stored in `localStorage`
-- Extraction history in `localStorage`
-- No server-side database (demo mode)
+---
 
-## Troubleshooting
+## 🤝 Contributing
 
-### "API key is required" error
+Pull requests welcome! Please open an issue first for major changes.
 
-1. Go to Settings
-2. Enter your Google Maps API key
-3. Click "Save Settings"
+---
 
-### No results found
+## 📄 License
 
-- Verify your API key is valid
-- Check the keyword and location
-- Try increasing the radius or max results
-
-### Export not working
-
-- Ensure the results table has data
-- Check browser console for errors
-- Try a different browser
-
-## License
-
-MIT
+MIT © [Broodle](https://broodle.in)
