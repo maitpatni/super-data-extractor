@@ -14,7 +14,7 @@
 
 ## 🌐 Live Demo
 
-**Try it online:** *(self-hosted — deploy your own instance below)*
+**Try it online:** [superextractor.broodle.in](https://superextractor.broodle.in)
 
 ---
 
