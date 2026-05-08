@@ -5,6 +5,7 @@ const { logger } = require('../lib/logger');
 const places = require('./places');
 const enrichment = require('./enrichment');
 const webhookSvc = require('./webhooks');
+const { buildKeyPool } = require('../lib/build-key-pool');
 
 const running = new Map(); // jobId -> { abortController }
 
@@ -16,9 +17,8 @@ function getJobForUser(userId, id) {
 
 async function runBulkMaps(job) {
   const { userId } = job;
-  const settings = database.ensureUserSettings(userId);
-  const apiKey = settings.googleMapsApiKey;
-  if (!apiKey) {
+  const keyPool = buildKeyPool(userId, 'google_maps');
+  if (!keyPool) {
     database.jobs.finish(job.id, {
       status: 'failed',
       error: 'Google Maps API key is not configured.',
@@ -57,7 +57,7 @@ async function runBulkMaps(job) {
     const query = queries[qi];
     try {
       const out = await places.runMapsSearch({
-        apiKey,
+        keyPool,
         searchTerm: query.searchTerm || query.keyword || '',
         location: query.location || '',
         radiusMeters: query.radius || 5000,

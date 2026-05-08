@@ -1,6 +1,7 @@
 'use strict';
 
 const { UpstreamError, ValidationError } = require('../lib/errors');
+const { asPool } = require('../lib/key-pool');
 
 const APOLLO_PEOPLE_SEARCH_URL = 'https://api.apollo.io/api/v1/mixed_people/search';
 const APOLLO_HEALTH_CHECK_URL = 'https://api.apollo.io/api/v1/auth/health_check';
@@ -12,37 +13,72 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function callApollo(url, body, apiKey, label) {
-  for (let attempt = 0; attempt <= MAX_RETRIES_429; attempt += 1) {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-cache',
-        'X-Api-Key': apiKey,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (resp.status === 429 && attempt < MAX_RETRIES_429) {
-      const retryAfter = Number(resp.headers.get('retry-after')) || 2 * Math.pow(2, attempt);
-      await sleep(Math.min(retryAfter * 1000, 30_000));
-      continue;
+/**
+ * Low-level Apollo call with key-pool support. On 429, the offending key is
+ * cooled off and the next available key is tried. The honored Retry-After
+ * header informs the cooldown duration. Apollo doesn't bill us per call (it
+ * bills credits), so we don't charge cost here — we just track usage counters.
+ */
+async function callApolloWithPool({ url, body, keyPool, label }) {
+  if (!keyPool) throw new UpstreamError('Apollo.io', 'No API key available.', 400);
+  const triedKeys = new Set();
+  let lastError = null;
+
+  while (triedKeys.size < keyPool.size()) {
+    const key = keyPool.pick();
+    if (!key) break;
+    if (triedKeys.has(key.id)) break;
+    triedKeys.add(key.id);
+
+    for (let attempt = 0; attempt <= MAX_RETRIES_429; attempt += 1) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+          'X-Api-Key': key.key,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (resp.status === 429) {
+        const retryAfter = Number(resp.headers.get('retry-after')) || 2 * Math.pow(2, attempt);
+        // Cool this key off; if we still have other keys, fall through to the
+        // outer loop which will try the next one.
+        if (keyPool.size() > 1) {
+          keyPool.cooldown(key.id, retryAfter * 1000);
+          break;
+        }
+        if (attempt < MAX_RETRIES_429) {
+          await sleep(Math.min(retryAfter * 1000, 30_000));
+          continue;
+        }
+      }
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        lastError = new UpstreamError(
+          'Apollo.io',
+          `${label || ''} ${data.message || data.error || `Status ${resp.status}`}`.trim(),
+          resp.status,
+          { keyId: key.id },
+        );
+        // Don't retry on hard errors; surface to caller.
+        if (resp.status !== 429) throw lastError;
+      } else {
+        keyPool.charge(key.id, 0, 1); // count the call (cost in credits, tracked upstream)
+        return data;
+      }
     }
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new UpstreamError(
-        'Apollo.io',
-        `${label || ''} ${data.message || data.error || `Status ${resp.status}`}`.trim(),
-        resp.status,
-      );
-    }
-    return data;
   }
-  throw new UpstreamError('Apollo.io', `${label || ''} Rate-limited after ${MAX_RETRIES_429} retries`, 429);
+  throw lastError || new UpstreamError('Apollo.io', 'All keys exhausted (rate-limited).', 429);
 }
 
-async function validateApiKey(apiKey) {
-  const data = await callApollo(APOLLO_HEALTH_CHECK_URL, null, apiKey, 'health');
+// Back-compat: callApollo(url, body, apiKey, label) — accept string or pool.
+async function callApollo(url, body, apiKeyOrPool, label) {
+  return callApolloWithPool({ url, body, keyPool: asPool(apiKeyOrPool), label });
+}
+
+async function validateApiKey(apiKeyOrPool) {
+  const data = await callApollo(APOLLO_HEALTH_CHECK_URL, null, apiKeyOrPool, 'health');
   if (data.is_logged_in !== true) {
     throw new UpstreamError('Apollo.io', data.message || 'Invalid API key', 401);
   }
@@ -95,6 +131,7 @@ function normalizeProfile(result = {}, fallback = {}) {
  */
 async function searchProfiles({
   apiKey,
+  keyPool,
   name = '',
   company = '',
   role = '',
@@ -111,6 +148,9 @@ async function searchProfiles({
     });
   }
 
+  const pool = keyPool || asPool(apiKey);
+  if (!pool) throw new UpstreamError('Apollo.io', 'No Apollo API key configured.', 400);
+
   const want = Math.min(Math.max(Number(maxResults) || 25, 1), HARD_CAP);
   const totalPages = Math.ceil(want / PER_PAGE);
   const all = [];
@@ -123,7 +163,12 @@ async function searchProfiles({
     if (location) body.person_locations = [location];
     if (industry) body.q_organization_industry_keywords = [industry];
 
-    const data = await callApollo(APOLLO_PEOPLE_SEARCH_URL, body, apiKey, 'people-search');
+    const data = await callApolloWithPool({
+      url: APOLLO_PEOPLE_SEARCH_URL,
+      body,
+      keyPool: pool,
+      label: 'people-search',
+    });
     const people = Array.isArray(data.people) ? data.people : [];
     all.push(...people);
 

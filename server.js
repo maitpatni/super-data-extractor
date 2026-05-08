@@ -101,6 +101,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/api-keys', require('./routes/api-keys'));
+app.use('/api/provider-keys', require('./routes/provider-keys'));
 app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/analytics', require('./routes/analytics'));
 

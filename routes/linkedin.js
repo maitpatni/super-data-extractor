@@ -6,13 +6,14 @@ const apollo = require('../services/apollo');
 const { requireSession } = require('../middleware/auth');
 const { searchLimiter, validateKeyLimiter } = require('../middleware/rate-limit');
 const { ValidationError } = require('../lib/errors');
+const { buildKeyPool } = require('../lib/build-key-pool');
 
 const router = express.Router();
 
 router.post('/search', requireSession, searchLimiter, async (req, res, next) => {
   try {
-    const settings = database.ensureUserSettings(req.auth.userId);
-    if (!settings.linkedinApiKey) {
+    const keyPool = buildKeyPool(req.auth.userId, 'apollo');
+    if (!keyPool) {
       return res.status(402).json({
         error: { code: 'CONFIG_REQUIRED', message: 'Apollo.io API key not configured' },
         configRequired: true,
@@ -28,7 +29,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
       maxResults = 25,
     } = req.body || {};
     const profiles = await apollo.searchProfiles({
-      apiKey: settings.linkedinApiKey,
+      keyPool,
       name,
       company,
       role,
@@ -52,7 +53,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
       costUsd: 0,
       params: req.body || {},
       results: filtered,
-      summary: { returnedResults: filtered.length },
+      summary: { returnedResults: filtered.length, keyPoolStats: keyPool.stats() },
     });
 
     database.logActivity({

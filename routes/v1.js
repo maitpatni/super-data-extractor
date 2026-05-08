@@ -12,6 +12,7 @@ const { apiV1Limiter, enrichmentLimiter } = require('../middleware/rate-limit');
 const { FIELD_MASK } = require('../lib/places-fields');
 const { estimateMapsCost } = require('../lib/cost');
 const { validateEmail, validateEmailsBatch } = require('../lib/email-validate');
+const { buildKeyPool } = require('../lib/build-key-pool');
 
 const router = express.Router();
 router.use(requireApiKey, apiV1Limiter);
@@ -22,8 +23,9 @@ router.get('/me', (req, res) => {
 
 router.post('/maps/search', async (req, res, next) => {
   try {
+    const keyPool = buildKeyPool(req.auth.userId, 'google_maps');
+    if (!keyPool) throw new ValidationError('Google Maps API key not configured.');
     const settings = database.ensureUserSettings(req.auth.userId);
-    if (!settings.googleMapsApiKey) throw new ValidationError('Google Maps API key not configured.');
     const {
       searchTerm,
       location,
@@ -37,7 +39,7 @@ router.post('/maps/search', async (req, res, next) => {
     if (!searchTerm || !location) throw new ValidationError('searchTerm and location are required.');
     const excludePlaceIds = new Set(freshOnly ? database.getUserPlaceIds(req.auth.userId) : []);
     const out = await places.runMapsSearch({
-      apiKey: settings.googleMapsApiKey,
+      keyPool,
       searchTerm,
       location,
       radiusMeters: radius,
@@ -83,8 +85,8 @@ router.post('/maps/cost-estimate', (req, res) => {
 
 router.post('/linkedin/search', async (req, res, next) => {
   try {
-    const settings = database.ensureUserSettings(req.auth.userId);
-    if (!settings.linkedinApiKey) throw new ValidationError('Apollo.io API key not configured.');
+    const keyPool = buildKeyPool(req.auth.userId, 'apollo');
+    if (!keyPool) throw new ValidationError('Apollo.io API key not configured.');
     const {
       name = '',
       company = '',
@@ -94,7 +96,7 @@ router.post('/linkedin/search', async (req, res, next) => {
       maxResults = 25,
     } = req.body || {};
     const profiles = await apollo.searchProfiles({
-      apiKey: settings.linkedinApiKey,
+      keyPool,
       name,
       company,
       role,

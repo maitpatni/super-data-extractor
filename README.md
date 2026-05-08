@@ -27,6 +27,7 @@ What it does that paid alternatives don't:
 - **Wappalyzer-style tech detection** — for every business with a website, we report the CMS, framework, ecommerce platform, analytics, payments, and CDN they use. ~60 fingerprints, no external API.
 - **Enrichment-only mode** — `POST /api/v1/enrich` accepts a CSV/JSON list of websites and returns enriched rows (emails + validation + tech + socials). Perfect for "I already have a list, just add the missing data."
 - **Real cost meter** that mirrors Google's actual SKU pricing (Essentials / Pro / Enterprise) keyed off your field mask, with per-row USD/INR breakdown.
+- **Multi-key load balancing** — register multiple Google or Apollo keys, traffic round-robins across them with per-key daily INR ceilings and automatic 429 cooldown. Per-key spend visible in `/api/analytics/spend?byKey=1`. _A structural moat no SaaS can offer because they own the keys._
 - **Bulk job mode** — "all dentists across 50 zip codes" runs as a persisted, resumable job. Restarts skip already-completed queries; you never double-pay.
 - **REST API** at `/api/v1/*` with API-key auth, plus **HMAC-signed webhooks** so n8n / Zapier / Make can drive searches and react to completions.
 - **Spend analytics**: ₹/result, ₹/day, top categories. See where your money goes.

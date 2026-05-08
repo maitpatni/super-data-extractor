@@ -4,8 +4,9 @@ const { logger } = require('../lib/logger');
 const { UpstreamError } = require('../lib/errors');
 const cache = require('../lib/cache');
 const grid = require('../lib/grid');
-const { calculateMapsCost, estimateMapsCost } = require('../lib/cost');
+const { calculateMapsCost, estimateMapsCost, textSearchSkuFor } = require('../lib/cost');
 const { FIELD_MASK, RESOURCE_FIELD_MASK } = require('../lib/places-fields');
+const { asPool } = require('../lib/key-pool');
 
 const GOOGLE_PLACES_URL = 'https://places.googleapis.com/v1';
 const PAGE_DELAY_MS = 2000;
@@ -136,17 +137,96 @@ function buildHeaders(apiKey, mask) {
   };
 }
 
-async function callPlaces(url, init, label) {
-  const response = await fetch(url, init);
-  const isJson = response.headers.get('content-type')?.includes('application/json');
-  const data = isJson ? await response.json() : { error: await response.text() };
-  if (!response.ok) {
+/**
+ * Low-level Google Places call that uses a KeyPool for key selection. On 429
+ * (or 403 quota errors), the offending key is cooled off and the request
+ * retries with the next available key. After success, the call's per-request
+ * cost is charged to the key that served it.
+ *
+ * The legacy single-key flow is preserved by wrapping a string apiKey in a
+ * 1-key pool via asPool() inside the public entry points.
+ *
+ * @param {Object} args
+ * @param {string} args.url
+ * @param {Object} args.requestInit       fetch init MINUS the X-Goog-Api-Key header
+ * @param {string} args.fieldMask         field mask (used for the header AND for SKU pricing)
+ * @param {Object} args.keyPool           a KeyPool instance
+ * @param {string} [args.label]
+ * @returns {Promise<Object>} parsed JSON response
+ */
+async function callPlacesWithPool({ url, requestInit, fieldMask, keyPool, label }) {
+  if (!keyPool) throw new UpstreamError('Google Places', 'No API key available.', 400);
+  const triedKeys = new Set();
+  let lastError = null;
+  // Try every key at most once before giving up.
+  while (triedKeys.size < keyPool.size()) {
+    const key = keyPool.pick();
+    if (!key) break;
+    if (triedKeys.has(key.id)) break;
+    triedKeys.add(key.id);
+
+    const headers = { ...(requestInit?.headers || {}), ...buildHeaders(key.key, fieldMask) };
+    const response = await fetch(url, { ...requestInit, headers });
+    const isJson = response.headers.get('content-type')?.includes('application/json');
+    const data = isJson ? await response.json() : { error: await response.text() };
+
+    if (response.ok) {
+      // Charge the per-request cost to the key that served the call.
+      const sku = textSearchSkuFor(fieldMask);
+      const usd = sku.usdPer1k / 1000;
+      const fxRate = require('../lib/cost').usdToInr();
+      const inr = usd * fxRate;
+      keyPool.charge(key.id, inr, 1);
+      return data;
+    }
+
+    // 429 / 403 (quota) → cool off this key and try the next.
+    const isRateLimited = response.status === 429 || response.status === 403;
     const msg = data.error?.message || data.error_message || data.error || `Status ${response.status}`;
-    throw new UpstreamError('Google Places', `${label || ''} ${msg}`.trim(), response.status, {
+    lastError = new UpstreamError('Google Places', `${label || ''} ${msg}`.trim(), response.status, {
       status: response.status,
+      keyId: key.id,
     });
+    if (isRateLimited && keyPool.size() > 1) {
+      keyPool.cooldown(key.id);
+      logger.warn({ keyId: key.id, status: response.status }, 'cooling down Google key after rate limit');
+      continue;
+    }
+    // Hard error or single-key pool: don't retry.
+    throw lastError;
   }
-  return data;
+  throw (
+    lastError || new UpstreamError('Google Places', 'All keys exhausted (rate-limited or over ceiling).', 429)
+  );
+}
+
+// Back-compat wrapper used by the legacy paths that still pass a raw apiKey.
+async function callPlaces(url, init, label, apiKeyOrPool, fieldMask) {
+  const pool = asPool(apiKeyOrPool);
+  if (!pool) {
+    // Old call sites rely on the X-Goog-Api-Key already being on init.headers.
+    // Preserve that path verbatim.
+    const response = await fetch(url, init);
+    const isJson = response.headers.get('content-type')?.includes('application/json');
+    const data = isJson ? await response.json() : { error: await response.text() };
+    if (!response.ok) {
+      const msg = data.error?.message || data.error_message || data.error || `Status ${response.status}`;
+      throw new UpstreamError('Google Places', `${label || ''} ${msg}`.trim(), response.status, {
+        status: response.status,
+      });
+    }
+    return data;
+  }
+  // Strip any pre-set api-key header — the pool sets it.
+  const cleanedHeaders = { ...(init?.headers || {}) };
+  delete cleanedHeaders['X-Goog-Api-Key'];
+  return callPlacesWithPool({
+    url,
+    requestInit: { ...init, headers: cleanedHeaders },
+    fieldMask: fieldMask || cleanedHeaders['X-Goog-FieldMask'] || FIELD_MASK,
+    keyPool: pool,
+    label,
+  });
 }
 
 function humanizeCategory(category) {
@@ -254,17 +334,20 @@ function toResult(place, searchLocation = '') {
   };
 }
 
-async function geocodeLocation(textQuery, apiKey) {
+async function geocodeLocation(textQuery, apiKeyOrPool) {
   const cached = cache.getGeocode(textQuery);
   if (cached) return { ...cached, geocoded: false };
+  const fieldMask = 'places.location,places.formattedAddress';
   const data = await callPlaces(
     `${GOOGLE_PLACES_URL}/places:searchText`,
     {
       method: 'POST',
-      headers: buildHeaders(apiKey, 'places.location,places.formattedAddress'),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ textQuery, maxResultCount: 1 }),
     },
     'geocode',
+    apiKeyOrPool,
+    fieldMask,
   );
   if (!data.places?.length) {
     throw new UpstreamError('Google Places', 'Unable to resolve the location.', 502);
@@ -275,25 +358,25 @@ async function geocodeLocation(textQuery, apiKey) {
   return { ...value, geocoded: true };
 }
 
-async function fetchAutocomplete(query, apiKey) {
+async function fetchAutocomplete(query, apiKeyOrPool) {
+  const fieldMask = [
+    'suggestions.placePrediction.text.text',
+    'suggestions.placePrediction.structuredFormat.mainText.text',
+    'suggestions.placePrediction.structuredFormat.secondaryText.text',
+  ].join(',');
   const data = await callPlaces(
     `${GOOGLE_PLACES_URL}/places:autocomplete`,
     {
       method: 'POST',
-      headers: buildHeaders(
-        apiKey,
-        [
-          'suggestions.placePrediction.text.text',
-          'suggestions.placePrediction.structuredFormat.mainText.text',
-          'suggestions.placePrediction.structuredFormat.secondaryText.text',
-        ].join(','),
-      ),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         input: query,
         includedPrimaryTypes: ['locality', 'administrative_area_level_1', 'country', 'sublocality'],
       }),
     },
     'autocomplete',
+    apiKeyOrPool,
+    fieldMask,
   );
   return (data.suggestions || [])
     .map((entry) => {
@@ -308,15 +391,18 @@ async function fetchAutocomplete(query, apiKey) {
     .slice(0, 8);
 }
 
-async function validateApiKey(apiKey) {
+async function validateApiKey(apiKeyOrPool) {
+  const fieldMask = 'places.id,places.displayName';
   const data = await callPlaces(
     `${GOOGLE_PLACES_URL}/places:searchText`,
     {
       method: 'POST',
-      headers: buildHeaders(apiKey, 'places.id,places.displayName'),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ textQuery: 'coffee in New York', pageSize: 1, maxResultCount: 1 }),
     },
     'validate',
+    apiKeyOrPool,
+    fieldMask,
   );
   return Array.isArray(data.places) ? (data.places.length ? 'OK' : 'ZERO_RESULTS') : 'UNKNOWN';
 }
@@ -350,7 +436,7 @@ function buildSearchBody({
 }
 
 async function searchOneCell({
-  apiKey,
+  keyPool,
   queryText,
   cell,
   includedType,
@@ -369,7 +455,7 @@ async function searchOneCell({
       `${GOOGLE_PLACES_URL}/places:searchText`,
       {
         method: 'POST',
-        headers: buildHeaders(apiKey, RESOURCE_FIELD_MASK),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           buildSearchBody({
             queryText,
@@ -383,6 +469,8 @@ async function searchOneCell({
         ),
       },
       'searchText',
+      keyPool,
+      RESOURCE_FIELD_MASK,
     );
     textSearches += 1;
     const batch = data.places || [];
@@ -429,6 +517,7 @@ async function runWithConcurrency(items, concurrency, worker) {
  */
 async function runMapsSearch({
   apiKey,
+  keyPool,
   searchTerm,
   location,
   radiusMeters = 5000,
@@ -443,6 +532,8 @@ async function runMapsSearch({
   // (today's ceiling minus today's already-spent INR), not the gross ceiling.
   costCeilingInr = null,
 }) {
+  const pool = keyPool || asPool(apiKey);
+  if (!pool) throw new UpstreamError('Google Places', 'No Google Maps key configured.', 400);
   const requested = Math.min(Math.max(Number(maxResults) || 20, 1), MAX_RESULTS_HARD_CAP);
   const r = Math.min(Math.max(Number(radiusMeters) || 5000, 100), 50000);
   const normalizedMinRating = normalizeMinRating(filters.minRating);
@@ -451,7 +542,7 @@ async function runMapsSearch({
   let geocodings = 0;
   let center = null;
   try {
-    const geo = await geocodeLocation(location, apiKey);
+    const geo = await geocodeLocation(location, pool);
     if (geo.geocoded) geocodings += 1;
     center = { lat: geo.lat, lng: geo.lng };
   } catch (err) {
@@ -498,7 +589,7 @@ async function runMapsSearch({
       if (signal?.aborted) return;
       try {
         const out = await searchOneCell({
-          apiKey,
+          keyPool: pool,
           queryText: searchTerm,
           cell,
           includedType,
@@ -590,6 +681,7 @@ async function runMapsSearch({
       spendAborted,
       gridDensity: { startCells: totalCellsAtStart, processedCells: processedCount },
       strategy: center ? 'grid-density-aware' : 'single',
+      keyPoolStats: pool.stats(),
     },
     cost,
   };

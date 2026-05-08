@@ -187,6 +187,28 @@ db.exec(`
     FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS provider_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    name TEXT NOT NULL,
+    encryptedKey TEXT NOT NULL,
+    keyPreview TEXT NOT NULL,
+    ceilingInr REAL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    revokedAt TEXT,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS provider_key_usage (
+    keyId INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    costInr REAL NOT NULL DEFAULT 0,
+    calls INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (keyId, day),
+    FOREIGN KEY (keyId) REFERENCES provider_keys(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(tokenHash);
   CREATE INDEX IF NOT EXISTS idx_sessions_userId ON sessions(userId);
   CREATE INDEX IF NOT EXISTS idx_extractions_userId_createdAt ON extractions(userId, createdAt DESC);
@@ -195,6 +217,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_activity_logs_userId_createdAt ON activity_logs(userId, createdAt DESC);
   CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(userId, status);
   CREATE INDEX IF NOT EXISTS idx_api_keys_userId ON api_keys(userId);
+  CREATE INDEX IF NOT EXISTS idx_provider_keys_userId_provider ON provider_keys(userId, provider, revokedAt);
 `);
 
 // ---------------------------------------------------------------------------
@@ -404,6 +427,33 @@ const statements = {
   dueSchedules: db.prepare(`SELECT * FROM scheduled_searches WHERE enabled = 1 AND nextRunAt <= ?`),
   updateSchedule: db.prepare(`UPDATE scheduled_searches SET nextRunAt = ?, lastRunAt = ? WHERE id = ?`),
   deleteSchedule: db.prepare(`DELETE FROM scheduled_searches WHERE id = ? AND userId = ?`),
+
+  // Provider keys (multi-key load balancing for Google + Apollo)
+  insertProviderKey: db.prepare(`
+    INSERT INTO provider_keys (userId, provider, name, encryptedKey, keyPreview, ceilingInr, createdAt)
+    VALUES (@userId, @provider, @name, @encryptedKey, @keyPreview, @ceilingInr, @createdAt)
+  `),
+  listProviderKeysByUser: db.prepare(`
+    SELECT id, userId, provider, name, encryptedKey, keyPreview, ceilingInr, createdAt, revokedAt
+    FROM provider_keys WHERE userId = ? ORDER BY id ASC
+  `),
+  listActiveProviderKeysForUser: db.prepare(`
+    SELECT id, userId, provider, name, encryptedKey, keyPreview, ceilingInr, createdAt
+    FROM provider_keys WHERE userId = ? AND provider = ? AND revokedAt IS NULL ORDER BY id ASC
+  `),
+  revokeProviderKey: db.prepare(`UPDATE provider_keys SET revokedAt = ? WHERE id = ? AND userId = ?`),
+  upsertProviderKeyUsage: db.prepare(`
+    INSERT INTO provider_key_usage (keyId, day, costInr, calls)
+    VALUES (@keyId, @day, @costInr, @calls)
+    ON CONFLICT(keyId, day) DO UPDATE SET costInr = costInr + excluded.costInr, calls = calls + excluded.calls
+  `),
+  sumProviderKeyUsageSince: db.prepare(`
+    SELECT keyId, COALESCE(SUM(costInr), 0) AS costInr, COALESCE(SUM(calls), 0) AS calls
+    FROM provider_key_usage WHERE day >= ? GROUP BY keyId
+  `),
+  todayProviderKeyUsage: db.prepare(`
+    SELECT COALESCE(SUM(costInr), 0) AS costInr FROM provider_key_usage WHERE keyId = ? AND day = ?
+  `),
 };
 
 // ---------------------------------------------------------------------------
@@ -783,6 +833,77 @@ const geocodeCache = {
   del: (cacheKey) => statements.geoDel.run(cacheKey),
 };
 
+const providerKeys = {
+  /**
+   * Add a new provider key. The plaintext key is encrypted before insert.
+   * Returns the new row id.
+   */
+  create: ({ userId, provider, name, key, ceilingInr = 0 }) => {
+    const enc = encrypt(String(key));
+    const preview = key.length <= 8 ? '****' : `${key.slice(0, 4)}…${key.slice(-4)}`;
+    const info = statements.insertProviderKey.run({
+      userId,
+      provider,
+      name: name || `${provider} key ${Date.now()}`,
+      encryptedKey: enc,
+      keyPreview: preview,
+      ceilingInr: Number(ceilingInr || 0),
+      createdAt: nowIso(),
+    });
+    return Number(info.lastInsertRowid);
+  },
+  /** All keys (active + revoked) for a user — used by the settings UI. */
+  listForUser: (userId) =>
+    statements.listProviderKeysByUser.all(userId).map((r) => ({
+      id: r.id,
+      provider: r.provider,
+      name: r.name,
+      keyPreview: r.keyPreview,
+      ceilingInr: Number(r.ceilingInr || 0),
+      createdAt: r.createdAt,
+      revokedAt: r.revokedAt,
+    })),
+  /**
+   * Active keys for a user+provider, with plaintext decrypted. Returns [] when
+   * none exist; the caller is expected to fall back to the legacy single-key
+   * field on settings (back-compat).
+   */
+  activeForUserProvider: (userId, provider) => {
+    return statements.listActiveProviderKeysForUser.all(userId, provider).map((r) => {
+      let plaintext = '';
+      try {
+        plaintext = decrypt(r.encryptedKey);
+      } catch (_e) {
+        plaintext = '';
+      }
+      return {
+        id: r.id,
+        provider: r.provider,
+        name: r.name,
+        key: plaintext,
+        keyPreview: r.keyPreview,
+        ceilingInr: Number(r.ceilingInr || 0),
+        createdAt: r.createdAt,
+      };
+    });
+  },
+  revoke: (userId, id) => statements.revokeProviderKey.run(nowIso(), id, userId),
+  /** Charge cost against a key for today. */
+  recordUsage: (keyId, costInr, calls = 1) => {
+    statements.upsertProviderKeyUsage.run({
+      keyId,
+      day: new Date().toISOString().slice(0, 10),
+      costInr: Number(costInr || 0),
+      calls: Number(calls || 0),
+    });
+  },
+  /** Today's spend for one key (for ceiling enforcement). */
+  todayCostInr: (keyId) =>
+    Number(statements.todayProviderKeyUsage.get(keyId, new Date().toISOString().slice(0, 10)).costInr || 0),
+  /** Aggregate usage rows since a given day (YYYY-MM-DD) for analytics. */
+  usageSince: (sinceDay) => statements.sumProviderKeyUsageSince.all(sinceDay),
+};
+
 function toPublicUser(row) {
   if (!row) return null;
   return {
@@ -835,4 +956,5 @@ module.exports = {
   jobs,
   schedules,
   geocodeCache,
+  providerKeys,
 };

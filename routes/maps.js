@@ -11,6 +11,7 @@ const { requireSession } = require('../middleware/auth');
 const { searchLimiter, validateKeyLimiter } = require('../middleware/rate-limit');
 const { estimateMapsCost } = require('../lib/cost');
 const { FIELD_MASK } = require('../lib/places-fields');
+const { buildKeyPool } = require('../lib/build-key-pool');
 
 const router = express.Router();
 
@@ -22,12 +23,21 @@ function startOfTodayIso() {
 
 router.get('/location-suggestions', requireSession, async (req, res, next) => {
   try {
-    const settings = database.ensureUserSettings(req.auth.userId);
-    const apiKey = String(req.query.apiKey || settings.googleMapsApiKey || '').trim();
+    const keyPool =
+      buildKeyPool(req.auth.userId, 'google_maps') ||
+      (req.query.apiKey
+        ? {
+            pick: () => ({ id: 'one-shot', key: String(req.query.apiKey) }),
+            size: () => 1,
+            charge: () => undefined,
+            cooldown: () => undefined,
+            stats: () => [],
+          }
+        : null);
     const query = String(req.query.query || '').trim();
-    if (!apiKey) throw new ValidationError('Google Maps API key is required.');
+    if (!keyPool) throw new ValidationError('Google Maps API key is required.');
     if (query.length < 2) return res.json({ suggestions: [] });
-    const suggestions = await places.fetchAutocomplete(query, apiKey);
+    const suggestions = await places.fetchAutocomplete(query, keyPool);
     res.json({ suggestions });
   } catch (err) {
     next(err);
@@ -89,8 +99,8 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
     }
 
     const settings = database.ensureUserSettings(req.auth.userId);
-    const apiKey = settings.googleMapsApiKey;
-    if (!apiKey) throw new ValidationError('Google Maps API key is required.');
+    const keyPool = buildKeyPool(req.auth.userId, 'google_maps');
+    if (!keyPool) throw new ValidationError('Google Maps API key is required.');
 
     const { categoryText, includedType } = places.resolveCategory(category);
     const searchTerm = [categoryText, query || keyword].filter(Boolean).join(' ').trim();
@@ -126,7 +136,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
     const excludePlaceIds = new Set(freshOnly ? database.getUserPlaceIds(req.auth.userId) : []);
 
     const out = await places.runMapsSearch({
-      apiKey,
+      keyPool,
       searchTerm,
       location,
       radiusMeters: radius,

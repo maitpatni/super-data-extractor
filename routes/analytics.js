@@ -12,6 +12,7 @@ function dayKey(iso) {
 
 router.get('/spend', requireSession, (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+  const byKey = req.query.byKey === '1' || req.query.byKey === 'true';
   const all = database.getExtractionHistoryByUser(req.auth.userId, { limit: 1000, offset: 0 });
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const recent = all.filter((e) => new Date(e.timestamp).getTime() >= cutoff);
@@ -39,6 +40,24 @@ router.get('/spend', requireSession, (req, res) => {
     .slice(0, 10)
     .map(([category, costInr]) => ({ category, costInr: Number(costInr.toFixed(2)) }));
 
+  let perKey;
+  if (byKey) {
+    const sinceDay = new Date(cutoff).toISOString().slice(0, 10);
+    const usage = database.providerKeys.usageSince(sinceDay);
+    const usageById = new Map(usage.map((u) => [u.keyId, u]));
+    const keys = database.providerKeys.listForUser(req.auth.userId);
+    perKey = keys.map((k) => ({
+      id: k.id,
+      provider: k.provider,
+      name: k.name,
+      keyPreview: k.keyPreview,
+      ceilingInr: k.ceilingInr || null,
+      revoked: Boolean(k.revokedAt),
+      costInr: Number((usageById.get(k.id)?.costInr || 0).toFixed(2)),
+      calls: Number(usageById.get(k.id)?.calls || 0),
+    }));
+  }
+
   res.json({
     rangeDays: days,
     totals: {
@@ -49,6 +68,7 @@ router.get('/spend', requireSession, (req, res) => {
     },
     byDay: days_,
     topCategories,
+    ...(perKey ? { byKey: perKey } : {}),
   });
 });
 
