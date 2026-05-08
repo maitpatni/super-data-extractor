@@ -97,6 +97,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
     if (!searchTerm || !location) throw new ValidationError('Both query and location are required.');
 
     // Optional spending ceiling check
+    let costCeilingInr = null;
     if (settings.dailyInrCeiling && settings.dailyInrCeiling > 0) {
       const spent = database.spendInrSince(req.auth.userId, startOfTodayIso());
       const estimate = estimateMapsCost({
@@ -110,6 +111,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
           ceiling: settings.dailyInrCeiling,
         });
       }
+      costCeilingInr = settings.dailyInrCeiling - spent;
     }
 
     progress.update(sessionId, req.auth.userId, {
@@ -132,6 +134,7 @@ router.post('/search', requireSession, searchLimiter, async (req, res, next) => 
       includedType,
       filters,
       excludePlaceIds,
+      costCeilingInr,
       onProgress: (p) => {
         progress.update(sessionId, req.auth.userId, {
           status: 'running',

@@ -1,31 +1,44 @@
 'use strict';
 
-const { UpstreamError } = require('../lib/errors');
+const { UpstreamError, ValidationError } = require('../lib/errors');
 
 const APOLLO_PEOPLE_SEARCH_URL = 'https://api.apollo.io/api/v1/mixed_people/search';
 const APOLLO_HEALTH_CHECK_URL = 'https://api.apollo.io/api/v1/auth/health_check';
 const PER_PAGE = 25;
 const HARD_CAP = 200;
+const MAX_RETRIES_429 = 3;
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function callApollo(url, body, apiKey, label) {
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      'X-Api-Key': apiKey,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    throw new UpstreamError(
-      'Apollo.io',
-      `${label || ''} ${data.message || data.error || `Status ${resp.status}`}`.trim(),
-      resp.status,
-    );
+  for (let attempt = 0; attempt <= MAX_RETRIES_429; attempt += 1) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'X-Api-Key': apiKey,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (resp.status === 429 && attempt < MAX_RETRIES_429) {
+      const retryAfter = Number(resp.headers.get('retry-after')) || 2 * Math.pow(2, attempt);
+      await sleep(Math.min(retryAfter * 1000, 30_000));
+      continue;
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new UpstreamError(
+        'Apollo.io',
+        `${label || ''} ${data.message || data.error || `Status ${resp.status}`}`.trim(),
+        resp.status,
+      );
+    }
+    return data;
   }
-  return data;
+  throw new UpstreamError('Apollo.io', `${label || ''} Rate-limited after ${MAX_RETRIES_429} retries`, 429);
 }
 
 async function validateApiKey(apiKey) {
@@ -73,14 +86,12 @@ function normalizeProfile(result = {}, fallback = {}) {
 }
 
 /**
- * Apollo's mixed_people/search supports a number of filter parameters; importantly
- * we now pass `industry` ALONGSIDE name/role/etc., not as a fallback for keywords.
- * Mapping reference (current Apollo docs):
- *   q_keywords                    – free-text
- *   person_titles[]               – job titles
- *   person_locations[]            – cities/regions
- *   q_organization_name           – exact-ish org name
- *   q_organization_industry_keywords[] – industry filter (multi-token OK)
+ * Apollo's mixed_people/search supports a number of filter parameters. We
+ * pass `industry` ALONGSIDE name/role/etc., not as a fallback for keywords.
+ *
+ * IMPORTANT: at least one non-empty filter is required, otherwise Apollo would
+ * return its entire database paginated — that is a DB-scraping vector and a
+ * massive credit spend. We hard-fail the request before sending.
  */
 async function searchProfiles({
   apiKey,
@@ -91,6 +102,15 @@ async function searchProfiles({
   industry = '',
   maxResults = 25,
 }) {
+  const filters = [name, company, role, location, industry]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+  if (filters.length === 0) {
+    throw new ValidationError('At least one of name, company, role, location, or industry is required.', {
+      hint: 'Apollo would otherwise return its entire database — refusing to spend credits on an unbounded scrape.',
+    });
+  }
+
   const want = Math.min(Math.max(Number(maxResults) || 25, 1), HARD_CAP);
   const totalPages = Math.ceil(want / PER_PAGE);
   const all = [];

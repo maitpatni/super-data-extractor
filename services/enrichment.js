@@ -4,6 +4,8 @@ const { config } = require('../lib/config');
 const { logger } = require('../lib/logger');
 const { safeFetch } = require('../lib/ssrf');
 const { extractFromHtml } = require('../lib/email-extract');
+const { detectFromHtml } = require('../lib/tech-detect');
+const { validateEmail, canonicalEmail } = require('../lib/email-validate');
 
 // Per-domain queue: serialize requests to the same host with a delay.
 const domainQueues = new Map();
@@ -85,6 +87,7 @@ async function enrichWebsite(websiteUrl) {
       if (!allowed) return { enrichmentStatus: 'blocked-by-robots' };
 
       const result = { emails: new Set(), phones: new Set(), socials: {} };
+      const techNames = new Map(); // name -> {category, evidence}
       let visited = 0;
       for (const p of config.enrichment.paths) {
         if (visited >= 3 && (result.emails.size || Object.keys(result.socials).length)) break;
@@ -105,6 +108,13 @@ async function enrichWebsite(websiteUrl) {
           for (const [k, v] of Object.entries(ext.socials)) {
             if (!result.socials[k]) result.socials[k] = v;
           }
+          // Tech stack — only run on the homepage to keep cost down
+          if (p === '/' || p === '') {
+            const techHits = detectFromHtml({ html, headers: r.headers });
+            for (const t of techHits) {
+              if (!techNames.has(t.name)) techNames.set(t.name, t);
+            }
+          }
         } catch (err) {
           // SSRF rejection or per-page failure: continue with next path
           logger.debug({ err: err.message, url }, 'enrichment path failed');
@@ -112,11 +122,36 @@ async function enrichWebsite(websiteUrl) {
       }
       const emails = Array.from(result.emails).slice(0, 5);
       const phones = Array.from(result.phones).slice(0, 5);
+
+      // Validate emails (DNS-only). Cheap and parallel.
+      const emailValidations = await Promise.all(emails.map((e) => validateEmail(e).catch(() => null)));
+      const emailsScored = emails.map((e, i) => ({
+        email: e,
+        canonical: canonicalEmail(e),
+        ...(emailValidations[i] || { verdict: 'unknown', confidence: 0 }),
+      }));
+      // Pick the best email by (verdict rank, confidence, !role, !free)
+      const VERDICT_RANK = { valid: 3, risky: 2, unknown: 1, invalid: 0 };
+      const bestEmail =
+        emailsScored.slice().sort((a, b) => {
+          const v = (VERDICT_RANK[b.verdict] || 0) - (VERDICT_RANK[a.verdict] || 0);
+          if (v !== 0) return v;
+          const r = (a.role ? 1 : 0) - (b.role ? 1 : 0);
+          if (r !== 0) return r;
+          const f = (a.free ? 1 : 0) - (b.free ? 1 : 0);
+          if (f !== 0) return f;
+          return (b.confidence || 0) - (a.confidence || 0);
+        })[0]?.email || '';
+
       return {
-        enrichmentStatus: emails.length || Object.keys(result.socials).length ? 'enriched' : 'no-data',
+        enrichmentStatus:
+          emails.length || Object.keys(result.socials).length || techNames.size ? 'enriched' : 'no-data',
         emails,
+        emailsScored,
+        bestEmail,
         phones,
         socials: result.socials,
+        tech: Array.from(techNames.values()),
       };
     } catch (err) {
       logger.debug({ err: err.message, host }, 'enrichment failed');
@@ -152,10 +187,13 @@ async function enrichResults(results, { concurrency = 4, onProgress = () => {}, 
           enrichWebsite(r.website)
             .then((info) => {
               r.emails = info.emails || [];
+              r.emailsScored = info.emailsScored || [];
               r.phones = info.phones || (r.phone ? [r.phone] : []);
               r.socials = info.socials || {};
+              r.tech = info.tech || [];
               r.enrichmentStatus = info.enrichmentStatus || 'unknown';
-              r.email = r.email || r.emails[0] || '';
+              r.email = r.email || info.bestEmail || r.emails[0] || '';
+              r.bestEmail = info.bestEmail || r.email || '';
               done += 1;
               onProgress({ done, total });
             })

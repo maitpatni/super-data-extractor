@@ -363,7 +363,7 @@ async function searchOneCell({
   let pageToken = null;
   let pages = 0;
   let textSearches = 0;
-  let cappedPage = false;
+  let lastNextPageToken = null;
   while (pages < MAX_PAGES_PER_CELL) {
     const data = await callPlaces(
       `${GOOGLE_PLACES_URL}/places:searchText`,
@@ -386,17 +386,21 @@ async function searchOneCell({
     );
     textSearches += 1;
     const batch = data.places || [];
-    if (batch.length >= PER_PAGE) cappedPage = true;
     for (const p of batch) {
       if (!accept(p)) continue;
       places.push(p);
     }
+    lastNextPageToken = data.nextPageToken || null;
     if (!data.nextPageToken) break;
     pageToken = data.nextPageToken;
     pages += 1;
     if (pages < MAX_PAGES_PER_CELL) await new Promise((r) => setTimeout(r, PAGE_DELAY_MS));
   }
-  return { places, textSearches, capped: cappedPage && pages >= MAX_PAGES_PER_CELL };
+  // `capped` = we exited because we exhausted MAX_PAGES_PER_CELL while Google
+  // still had more pages for us. That's the true signal that this cell deserves
+  // subdivision. If the loop exited because nextPageToken was missing, we
+  // already saw everything Google had for the cell.
+  return { places, textSearches, capped: lastNextPageToken !== null };
 }
 
 async function runWithConcurrency(items, concurrency, worker) {
@@ -434,6 +438,10 @@ async function runMapsSearch({
   excludePlaceIds = new Set(),
   onProgress = () => {},
   signal,
+  // Mid-run spend abort: if we exceed `costCeilingInr`, set spendAborted=true
+  // and let the outer loop break. The caller passes the *remaining* budget
+  // (today's ceiling minus today's already-spent INR), not the gross ceiling.
+  costCeilingInr = null,
 }) {
   const requested = Math.min(Math.max(Number(maxResults) || 20, 1), MAX_RESULTS_HARD_CAP);
   const r = Math.min(Math.max(Number(radiusMeters) || 5000, 100), 50000);
@@ -456,6 +464,7 @@ async function runMapsSearch({
   let textSearches = 0;
   let dups = 0;
   let excluded = 0;
+  let spendAborted = false;
 
   const accept = (p) => {
     const id = p?.id;
@@ -532,11 +541,30 @@ async function runMapsSearch({
           excludedSkipped: excluded,
           currentPlace: '',
         });
+        // Mid-run spend ceiling check. If the remaining budget is exceeded,
+        // signal an abort so in-flight cells stop spawning more pages.
+        if (costCeilingInr != null && Number.isFinite(costCeilingInr)) {
+          const running = calculateMapsCost({
+            textSearchFieldMask: FIELD_MASK,
+            textSearches,
+            detailLookups: 0,
+            geocodings,
+          });
+          if (running.inr > costCeilingInr) {
+            spendAborted = true;
+            try {
+              if (signal && !signal.aborted) signal.dispatchEvent?.(new Event('abort'));
+            } catch (_e) {
+              /* ignore */
+            }
+          }
+        }
       }
     };
 
     // Promise.allSettled-equivalent via worker pool: errors caught inside workOne above.
     await runWithConcurrency(batch, CONCURRENCY, workOne);
+    if (spendAborted) break;
   }
 
   const placesTrimmed = places.slice(0, requested);
@@ -559,6 +587,7 @@ async function runMapsSearch({
       duplicatesSkipped: dups,
       excludedSkipped: excluded,
       failedCells: failed,
+      spendAborted,
       gridDensity: { startCells: totalCellsAtStart, processedCells: processedCount },
       strategy: center ? 'grid-density-aware' : 'single',
     },

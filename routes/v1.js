@@ -8,9 +8,10 @@ const enrichmentSvc = require('../services/enrichment');
 const jobs = require('../services/jobs');
 const { ValidationError } = require('../lib/errors');
 const { requireApiKey } = require('../middleware/auth');
-const { apiV1Limiter } = require('../middleware/rate-limit');
+const { apiV1Limiter, enrichmentLimiter } = require('../middleware/rate-limit');
 const { FIELD_MASK } = require('../lib/places-fields');
 const { estimateMapsCost } = require('../lib/cost');
+const { validateEmail, validateEmailsBatch } = require('../lib/email-validate');
 
 const router = express.Router();
 router.use(requireApiKey, apiV1Limiter);
@@ -178,6 +179,63 @@ router.get('/extractions', (req, res) => {
       summary: e.summary,
     })),
   });
+});
+
+// ---------------------------------------------------------------------------
+// Enrichment-only endpoint — the strategic differentiator. Caller posts an
+// array of rows that already have a `website` (or `domain`); we return them
+// enriched with emails (DNS-validated), socials, phones, and tech stack.
+// No search, no Google Places spend. CSV-in/JSON-out workflows are the most-
+// asked use case across competitor users.
+// ---------------------------------------------------------------------------
+router.post('/enrich', enrichmentLimiter, async (req, res, next) => {
+  try {
+    const { rows = [], includeTech = true, validateEmails: doValidate = true } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length) {
+      throw new ValidationError('rows[] is required.', { hint: 'Each row needs a `website` or `domain`.' });
+    }
+    if (rows.length > 1000) throw new ValidationError('Maximum 1000 rows per request.');
+    // Normalise: accept either `website` or `domain`
+    const items = rows.map((r, i) => {
+      const obj = { ...r };
+      if (!obj.website && obj.domain) {
+        const d = String(obj.domain).trim();
+        obj.website = d.startsWith('http') ? d : `https://${d}`;
+      }
+      obj._idx = i;
+      return obj;
+    });
+    const enriched = await enrichmentSvc.enrichResults(items.slice());
+    if (!includeTech) for (const r of enriched) delete r.tech;
+    if (!doValidate) for (const r of enriched) delete r.emailsScored;
+    res.json({
+      success: true,
+      count: enriched.length,
+      enrichedCount: enriched.filter((r) => r.enrichmentStatus === 'enriched').length,
+      results: enriched,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Single-shot email validator (DNS-only). Useful for "verify this list".
+router.post('/email/validate', enrichmentLimiter, async (req, res, next) => {
+  try {
+    const { email, emails } = req.body || {};
+    if (Array.isArray(emails)) {
+      if (emails.length > 500) throw new ValidationError('Maximum 500 emails per request.');
+      const out = await validateEmailsBatch(emails);
+      return res.json({ success: true, results: out });
+    }
+    if (typeof email !== 'string' || !email) {
+      throw new ValidationError('Either `email` (string) or `emails` (array) is required.');
+    }
+    const out = await validateEmail(email);
+    return res.json({ success: true, result: out });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;

@@ -29,21 +29,32 @@ async function runBulkMaps(job) {
 
   const { queries = [], maxResultsPerQuery = 60, enrich = true, includeHistoryDedup = false } = job.params;
   const total = queries.length;
-  const allResults = [];
-  let done = 0;
-  let textSearches = 0;
-  let detailLookups = 0;
-  let geocodings = 0;
-  let costInr = 0;
+
+  // Resume support: pull prior progress so a restart doesn't redo finished work.
+  const priorProgress = job.progress || {};
+  const completedIndices = new Set(
+    Array.isArray(priorProgress.completedIndices) ? priorProgress.completedIndices : [],
+  );
+  const allResults = Array.isArray(priorProgress.partialResultsList)
+    ? priorProgress.partialResultsList.slice()
+    : [];
+  let textSearches = Number(priorProgress.textSearches || 0);
+  let detailLookups = Number(priorProgress.detailLookups || 0);
+  let geocodings = Number(priorProgress.geocodings || 0);
+  let costInr = Number(priorProgress.costInr || 0);
+  let done = completedIndices.size;
 
   const abortController = new AbortController();
   running.set(job.id, { abortController });
 
   const excludePlaceIds = new Set(includeHistoryDedup ? database.getUserPlaceIds(userId) : []);
-  const seen = new Set();
+  const seen = new Set(allResults.map((r) => r.placeId || r.id).filter(Boolean));
+  for (const id of seen) excludePlaceIds.add(id);
 
-  for (const query of queries) {
+  for (let qi = 0; qi < queries.length; qi += 1) {
     if (abortController.signal.aborted) break;
+    if (completedIndices.has(qi)) continue;
+    const query = queries[qi];
     try {
       const out = await places.runMapsSearch({
         apiKey,
@@ -63,6 +74,7 @@ async function runBulkMaps(job) {
             currentBatch: p,
             partialResults: allResults.length,
             costInr,
+            completedIndices: Array.from(completedIndices),
           });
         },
       });
@@ -78,15 +90,23 @@ async function runBulkMaps(job) {
           allResults.push(r);
         }
       }
+      completedIndices.add(qi);
     } catch (err) {
       logger.warn({ err: err.message, query }, 'bulk job query failed');
+      // Mark as done so resume doesn't retry forever.
+      completedIndices.add(qi);
     }
-    done += 1;
+    done = completedIndices.size;
     database.jobs.updateProgress(job.id, 'running', {
       done,
       total,
       partialResults: allResults.length,
+      partialResultsList: allResults,
       costInr,
+      textSearches,
+      detailLookups,
+      geocodings,
+      completedIndices: Array.from(completedIndices),
     });
   }
 

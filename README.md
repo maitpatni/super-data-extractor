@@ -2,9 +2,8 @@
 
 # Super Data Extractor
 
-**Self-hosted, open-source lead extractor for Google Maps and Apollo.io.**
-**500+ results per query. Automatic email enrichment. Bulk jobs. REST API. Webhooks.**
-**Bring your own API keys; nothing leaves your server.**
+**Self-hosted lead extractor. Google Maps + Apollo + DNS-validated email + tech stack.**
+**Bring your own keys. No credits. No cloud lock-in.**
 
 [![CI](https://github.com/maitpatni/super-data-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/maitpatni/super-data-extractor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -24,11 +23,31 @@ What it does that paid alternatives don't:
 
 - **500+ results per query** via density-aware grid search, beating Google's per-page 60-result cap **without overspending on cells that don't need to be subdivided**.
 - **Automatic website enrichment** — when Apollo doesn't have an email, Super Data Extractor visits the business's site (`/`, `/contact`, `/about`, …), through an SSRF-safe fetcher, and pulls `mailto:`, free-text emails, phone numbers, and social handles.
+- **DNS-based email validation** — every extracted email is checked for MX/SPF/DMARC, role-inbox, free-mail, disposable provider, and common typos. Zero per-lookup cost, runs locally, no third-party verifier needed.
+- **Wappalyzer-style tech detection** — for every business with a website, we report the CMS, framework, ecommerce platform, analytics, payments, and CDN they use. ~60 fingerprints, no external API.
+- **Enrichment-only mode** — `POST /api/v1/enrich` accepts a CSV/JSON list of websites and returns enriched rows (emails + validation + tech + socials). Perfect for "I already have a list, just add the missing data."
 - **Real cost meter** that mirrors Google's actual SKU pricing (Essentials / Pro / Enterprise) keyed off your field mask, with per-row USD/INR breakdown.
-- **Bulk job mode** — "all dentists across 50 zip codes" runs as a persisted, resumable job with per-cell retry. Survives server restarts.
+- **Bulk job mode** — "all dentists across 50 zip codes" runs as a persisted, resumable job. Restarts skip already-completed queries; you never double-pay.
 - **REST API** at `/api/v1/*` with API-key auth, plus **HMAC-signed webhooks** so n8n / Zapier / Make can drive searches and react to completions.
 - **Spend analytics**: ₹/result, ₹/day, top categories. See where your money goes.
-- **Safe by default**: SSRF-blocked outbound URL fetching, encrypted API keys at rest (AES-256-GCM), per-route rate limits, helmet headers, scoped CORS, hashed bearer tokens, password hashing with bcrypt.
+- **Safe by default**: SSRF guard with **DNS-pinned outbound fetches** (no rebinding bypass), encrypted API keys at rest (AES-256-GCM), per-route rate limits, helmet headers, scoped CORS, hashed bearer tokens, password hashing with bcrypt + dummy-hash on missing-user paths.
+
+## How it compares
+
+| Feature | **Super Data Extractor** | gosom (3.9k ⭐) | omkarcloud (2.6k ⭐) | Apify | Outscraper | Phantombuster | Apollo SaaS |
+|---|---|---|---|---|---|---|---|
+| Self-hosted | ✅ Docker one-liner | ✅ | ✅ desktop | ❌ cloud | ❌ cloud | ❌ cloud | ❌ cloud |
+| BYOK (own API keys) | ✅ | ❌ scrapes | ❌ scrapes | ❌ | ❌ | ❌ | N/A |
+| Maps + people in one pipeline | ✅ | ❌ Maps only | ❌ Maps only | separate actors | partial | separate phantoms | ❌ people only |
+| Email validation (DNS) | ✅ built-in | ❌ | paid add-on | extra cost | extra cost | extra credits | partial |
+| Tech-stack detection | ✅ built-in | ❌ | ❌ | extra actor | ❌ | ❌ | ❌ |
+| Bulk jobs with resume | ✅ | partial | ❌ | ✅ | ✅ | ✅ | N/A |
+| Public REST API + webhooks | ✅ | ✅ | paid ($16/mo) | ✅ | ✅ | ✅ | ✅ |
+| 120-result Maps cap | bypassed | bypassed | bypassed | depends | bypassed | ❌ 120 cap | N/A |
+| Per-result fee | $0 (your Google bill) | $0 | $0 | $1.40+/1k | $2.85+/1k | $0.42+/exec-min | $0.10+/credit |
+| Account-ban risk | none (official API) | scraper risk | scraper risk | none | none | yes (LinkedIn) | none |
+| Data ownership | local SQLite | local | local | cloud | cloud | cloud | cloud |
+| License | MIT | MIT | freemium | commercial | commercial | commercial | commercial |
 
 ## Quick start (Docker)
 
@@ -118,11 +137,31 @@ curl -X POST https://your-host/api/v1/maps/search \
   -d '{"searchTerm":"coffee shop","location":"Brooklyn, NY","maxResults":120,"enrich":true}'
 ```
 
+**Enrichment-only** — already have a list of websites? Skip the search:
+
+```bash
+curl -X POST https://your-host/api/v1/enrich \
+  -H "X-Api-Key: sde_live_xxx" -H "Content-Type: application/json" \
+  -d '{"rows":[{"website":"https://acme.example"},{"domain":"foo.example"}]}'
+```
+
+Returns each row enriched with `emails` + `emailsScored` (verdict + confidence) + `bestEmail` + `phones` + `socials` + `tech` (CMS/framework/analytics/payments/CDN).
+
+**Validate emails** without enrichment — pure DNS, zero per-lookup cost:
+
+```bash
+curl -X POST https://your-host/api/v1/email/validate \
+  -H "X-Api-Key: sde_live_xxx" -H "Content-Type: application/json" \
+  -d '{"emails":["hello@acme.com","info@example.com","ceo@gmail.com"]}'
+```
+
 Endpoints:
 
 - `POST /api/v1/maps/search` — synchronous Maps search
 - `POST /api/v1/maps/cost-estimate` — pre-flight cost
-- `POST /api/v1/linkedin/search` — Apollo people search
+- `POST /api/v1/linkedin/search` — Apollo people search (requires ≥1 filter; refuses unbounded scrapes)
+- `POST /api/v1/enrich` — CSV/JSON of websites in → enriched rows out
+- `POST /api/v1/email/validate` — single-email or batch DNS validation
 - `POST /api/v1/jobs/bulk-maps` — kick off a bulk job
 - `GET  /api/v1/jobs/:id` — job status
 - `GET  /api/v1/extractions` / `GET /api/v1/extractions/:id` — list & fetch results

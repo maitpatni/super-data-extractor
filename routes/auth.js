@@ -11,6 +11,11 @@ const { loginLimiter, registerLimiter } = require('../middleware/rate-limit');
 
 const router = express.Router();
 
+// Pre-computed dummy hash so the missing-user login path takes ~the same time
+// as a real bcrypt comparison. Generated at module load against a value the
+// attacker cannot influence.
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+
 function getClientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
   if (Array.isArray(fwd)) return fwd[0];
@@ -77,8 +82,9 @@ router.post('/login', loginLimiter, async (req, res, next) => {
       .toLowerCase();
     const password = String(req.body?.password || '');
     const user = database.getUserByEmail(email);
-    // Constant-ish time compare path even when user is missing.
-    const ok = user ? await bcrypt.compare(password, user.passwordHash) : false;
+    // Equalize timing: always run bcrypt.compare, against a dummy hash if the
+    // user doesn't exist. Prevents email-enumeration via response time.
+    const ok = await bcrypt.compare(password, user ? user.passwordHash : DUMMY_BCRYPT_HASH);
     if (!user || !ok) throw new AuthError('Invalid email or password.');
     const token = crypto.randomBytes(32).toString('base64url');
     const expiresAt = new Date(Date.now() + config.sessionTtlDays * 24 * 60 * 60 * 1000).toISOString();

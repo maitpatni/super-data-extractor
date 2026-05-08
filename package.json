@@ -1,7 +1,7 @@
 {
   "name": "super-data-extractor",
-  "version": "2.0.0",
-  "description": "Self-hosted, open-source lead extractor for Google Maps and Apollo.io. 500+ results per query, automatic email enrichment, bulk jobs, REST API, webhooks. Bring your own API keys; nothing leaves your server.",
+  "version": "3.0.0",
+  "description": "Self-hosted lead extractor. Google Maps + Apollo + DNS-validated email + tech stack. Bring your own keys; no credits, no cloud lock-in. REST API + webhooks for n8n/Zapier/Make.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -48,7 +48,8 @@
     "helmet": "^7.1.0",
     "node-html-parser": "^6.1.13",
     "pino": "^9.5.0",
-    "pino-http": "^10.3.0"
+    "pino-http": "^10.3.0",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",
