@@ -1,8 +1,11 @@
 {
   "name": "super-data-extractor",
-  "version": "3.0.0",
-  "description": "Self-hosted lead extractor. Google Maps + Apollo + DNS-validated email + tech stack. Bring your own keys; no credits, no cloud lock-in. REST API + webhooks for n8n/Zapier/Make.",
+  "version": "3.2.0",
+  "description": "Self-hosted lead extractor. Google Maps + Apollo + DNS-validated email + tech stack. Bring your own keys; no credits, no cloud lock-in. REST API + webhooks + MCP server for n8n/Zapier/Make/Claude/Cursor/Copilot.",
   "main": "server.js",
+  "bin": {
+    "sde-mcp": "bin/sde-mcp"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
@@ -38,6 +41,7 @@
     "node": ">=18.17.0"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",
@@ -49,7 +53,8 @@
     "node-html-parser": "^6.1.13",
     "pino": "^9.5.0",
     "pino-http": "^10.3.0",
-    "undici": "^6.21.0"
+    "undici": "^6.21.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

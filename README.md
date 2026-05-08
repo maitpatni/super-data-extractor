@@ -50,6 +50,31 @@ What it does that paid alternatives don't:
 | Data ownership | local SQLite | local | local | cloud | cloud | cloud | cloud |
 | License | MIT | MIT | freemium | commercial | commercial | commercial | commercial |
 
+## Use it from Claude / Cursor / Copilot (MCP)
+
+Super Data Extractor ships an [MCP](https://modelcontextprotocol.io) server so Claude Desktop, Claude Code, Cursor, Continue.dev, GitHub Copilot's MCP host, and any other MCP-aware AI client can drive it directly. Nine tools — `sde_maps_search`, `sde_linkedin_search`, `sde_enrich`, `sde_email_validate`, `sde_bulk_maps_start`, `sde_job_status`, `sde_extractions_list`, `sde_extraction_get`, `sde_cost_estimate`.
+
+```bash
+# 1. Run an SDE instance and grab a public API key from Settings → API keys.
+# 2. Register the MCP server with your client:
+claude mcp add super-data-extractor \
+  -e SDE_BASE_URL=http://localhost:3000 \
+  -e SDE_API_KEY=sde_live_xxx \
+  -- npx -y sde-mcp
+```
+
+Or as an [Agent Skill](https://github.com/anthropics/agent-skills) (one-line install for clients that support it):
+
+```bash
+npx skills add maitpatni/super-data-extractor
+```
+
+After that, ask the assistant in plain English:
+
+> "Find me 100 dentists in Mumbai 400001 with a website and a phone number, enrich their contact emails, and give me a CSV."
+
+It calls `sde_cost_estimate` → asks you to confirm spend → `sde_maps_search` with enrichment → filters out invalid emails → returns the CSV. Detailed setup and per-tool docs in [`mcp/README.md`](mcp/README.md); the agent playbook (when to use which tool, cost discipline, failure modes) is in [`skills/super-data-extractor/SKILL.md`](skills/super-data-extractor/SKILL.md).
+
 ## Quick start (Docker)
 
 ```bash

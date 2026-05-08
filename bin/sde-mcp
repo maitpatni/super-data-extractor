@@ -1,0 +1,8 @@
+#!/usr/bin/env node
+// Tiny shim that boots the MCP server. Lives at bin/sde-mcp so the package's
+// `bin` entry works for `npx sde-mcp` and `claude mcp add ... -- npx sde-mcp`.
+import('../mcp/server.mjs').catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('[sde-mcp] failed to start MCP server:', err?.message || err);
+  process.exit(1);
+});
