@@ -1,7 +1,36 @@
+# Dependencies
 node_modules/
+
+# Local data
 data/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Env / secrets
 .env
-.env.local
+.env.*
+!.env.example
+
+# Logs
+logs/
 *.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build / coverage
+coverage/
+dist/
+build/
+.cache/
+
+# Misc
+*.pid
+.swp

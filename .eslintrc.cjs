@@ -1,0 +1,40 @@
+module.exports = {
+  root: true,
+  env: { node: true, es2022: true },
+  parserOptions: { ecmaVersion: 2022, sourceType: 'script' },
+  extends: ['eslint:recommended', 'prettier'],
+  plugins: ['n', 'import'],
+  rules: {
+    'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    'no-console': 'off',
+    eqeqeq: ['error', 'smart'],
+    'prefer-const': 'error',
+    'no-var': 'error',
+    'no-throw-literal': 'error',
+    'no-return-await': 'off',
+    'consistent-return': 'off',
+  },
+  overrides: [
+    {
+      files: ['tests/**/*.js'],
+      env: { node: true },
+      globals: {
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+        vi: 'readonly',
+      },
+    },
+    {
+      files: ['public/**/*.js'],
+      env: { browser: true, node: false },
+      parserOptions: { sourceType: 'script' },
+      rules: { 'no-undef': 'off' },
+    },
+  ],
+  ignorePatterns: ['node_modules/', 'data/', 'coverage/', 'dist/'],
+};

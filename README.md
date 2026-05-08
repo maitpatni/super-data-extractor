@@ -1,278 +1,238 @@
-# 🗺️ Super Data Extractor
+<div align="center">
 
-> **Extract business leads from Google Maps and LinkedIn profiles — fast, free to self-host, and production-ready.**
+# Super Data Extractor
 
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![Google Places API](https://img.shields.io/badge/Google%20Places-API%20(New)-4285F4)](https://developers.google.com/maps/documentation/places)
-[![SQLite](https://img.shields.io/badge/SQLite-database-003B57)](https://sqlite.org)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/maitpatni/super-data-extractor/pulls)
+**Self-hosted, open-source lead extractor for Google Maps and Apollo.io.**
+**500+ results per query. Automatic email enrichment. Bulk jobs. REST API. Webhooks.**
+**Bring your own API keys; nothing leaves your server.**
 
-**Super Data Extractor** is an open-source, self-hosted web application for extracting business leads from **Google Maps** and **LinkedIn** profiles. Search by keyword, location, category, and filters — then export clean data to **Excel or CSV** in seconds.
+[![CI](https://github.com/maitpatni/super-data-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/maitpatni/super-data-extractor/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18.17-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white)](#docker)
+![Stars](https://img.shields.io/github/stars/maitpatni/super-data-extractor?style=social)
 
----
-
-## 🌐 Live Demo
-
-**Try it online:** [superextractor.broodle.in](https://superextractor.broodle.in)
+</div>
 
 ---
 
-## ✨ Features
+## Why this exists
 
-### 🗺️ Google Maps Business Extractor
-- 🔍 **Smart search** — keyword, location, category, radius, max results
-- 📦 **100–500+ results per search** — proprietary grid search strategy bypasses Google's 20-result-per-page limit
-- 🏙️ **Location autocomplete** — city and area suggestions as you type
-- 📂 **70+ categories** — restaurants, hospitals, IT companies, digital marketing agencies, law firms, colleges, founders, real estate, and more
-- 🔎 **Advanced filters** — has phone, has website, open now, minimum rating, price level
-- 📊 **Interactive data table** — sortable columns, row selection checkboxes, star ratings, clickable phone & website
-- ♻️ **Skip already-extracted places** — avoids duplicate API charges on re-runs using session deduplication
-- ⏱️ **Real-time progress** — live progress bar with ETA during extraction
-- 💰 **Cost estimate in ₹ INR** — before and after each run so you know exactly what you're spending
+Every "leads tool" out there is either a $200/month SaaS that owns your data, or a Chrome extension one ToS-update away from breaking. Super Data Extractor is a single Node.js binary you run yourself. It uses Google's official Places API (New) for businesses and Apollo.io's official API for people. You bring the API keys; the data is yours; the bill is yours.
 
-### 🔗 LinkedIn Profile Extractor
-- 🔍 Search by name, company, role, location, industry
-- ⚡ Powered by [Apollo.io API](https://app.apollo.io) — no OAuth, no browser automation, just an API key
-- 📋 Full profile data: name, headline, company, role, location, email, phone, profile URL
-- Same interactive table with sorting, filtering, and export
+What it does that paid alternatives don't:
 
-### 📊 Dashboard
-- ✅ Real extraction stats (zero fake/demo data)
-- 🟢 API status cards — Google Maps & LinkedIn
-- 💰 Session cost summary in ₹ INR
-- 📋 Recent activity feed
-- ⚡ Quick action buttons
+- **500+ results per query** via density-aware grid search, beating Google's per-page 60-result cap **without overspending on cells that don't need to be subdivided**.
+- **Automatic website enrichment** — when Apollo doesn't have an email, Super Data Extractor visits the business's site (`/`, `/contact`, `/about`, …), through an SSRF-safe fetcher, and pulls `mailto:`, free-text emails, phone numbers, and social handles.
+- **Real cost meter** that mirrors Google's actual SKU pricing (Essentials / Pro / Enterprise) keyed off your field mask, with per-row USD/INR breakdown.
+- **Bulk job mode** — "all dentists across 50 zip codes" runs as a persisted, resumable job with per-cell retry. Survives server restarts.
+- **REST API** at `/api/v1/*` with API-key auth, plus **HMAC-signed webhooks** so n8n / Zapier / Make can drive searches and react to completions.
+- **Spend analytics**: ₹/result, ₹/day, top categories. See where your money goes.
+- **Safe by default**: SSRF-blocked outbound URL fetching, encrypted API keys at rest (AES-256-GCM), per-route rate limits, helmet headers, scoped CORS, hashed bearer tokens, password hashing with bcrypt.
 
-### 🔐 Account & Authentication
-- Secure register/login with full name, email, password, mobile
-- Passwords hashed with bcrypt (salt rounds = 10)
-- SQLite database — all searches, history, settings saved per user account
-- Session-based auth with Bearer tokens (30-day expiry)
-
-### 💾 Data & Export
-- **Excel (.xlsx)** — bold headers, alternating row colors, auto column widths, named sheets
-- **CSV** — clean comma-separated for any tool
-- Export selected rows or all results
-- Timestamped filenames: `google_maps_restaurant_mumbai_2026-04-18.xlsx`
-- Post-extraction column picker — show/hide columns before export
-
-### ⚙️ Settings & UX
-- API key management per user account (Google Maps + LinkedIn/Apollo.io)
-- API key validation with live test button
-- Dark/light mode — persists across sessions
-- Saved searches with one-click reload (up to 10 per user)
-- Search templates: Restaurants, Hospitals, Digital Marketing Agencies, IT Companies, Real Estate, Hotels, Gyms
-- Search history with re-run and per-entry export
-- Website reachability check — green ✅ / red ❌ indicators on results
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- **Node.js 18+** — [Download](https://nodejs.org)
-- **Google Maps API key** with Places API (New) enabled — [Setup guide below](#-google-maps-api-key-setup-2026)
-- *(Optional)* **Apollo.io API key** for LinkedIn — [Setup guide below](#-linkedin-via-apolloio-api)
-
-### Run Locally (Development)
+## Quick start (Docker)
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/maitpatni/super-data-extractor.git
+git clone https://github.com/maitpatni/super-data-extractor
 cd super-data-extractor
+cp .env.example .env
 
-# 2. Install dependencies
-npm install
+# Generate a 32-byte master key and put it in .env as MASTER_KEY=
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
-# 3. Start the server
-node server.js
-
-# 4. Open in browser
-open http://localhost:3000
+docker compose up -d
+# Open http://localhost:3000 → register → drop your Google + Apollo API keys
 ```
 
-Register an account on first run — all data is stored locally in `data/sde.db`.
-
-### Run with PM2 (Production)
+## Quick start (local Node)
 
 ```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Start the app
-pm2 start server.js --name super-data-extractor
-
-# Save PM2 process list (auto-restart on reboot)
-pm2 save
-pm2 startup
+git clone https://github.com/maitpatni/super-data-extractor
+cd super-data-extractor
+cp .env.example .env       # set MASTER_KEY (see above)
+npm install
+npm start                  # http://localhost:3000
 ```
 
-### Deploy with Nginx + SSL
+Requires **Node ≥ 18.17**.
 
-Point your Nginx reverse proxy at port `3000`:
+## Bring your own keys
 
-```nginx
-server {
-    listen 80;
-    server_name yourdomain.com;
-    return 301 https://$host$request_uri;
-}
+| Provider | Used for | Where to get it |
+|---|---|---|
+| Google Cloud → Places API (New) | Business search, geocoding, autocomplete | https://console.cloud.google.com → APIs & Services → Library → "Places API (New)" → Credentials |
+| Apollo.io | People search ("LinkedIn-style") | https://app.apollo.io → Settings → API |
 
-server {
-    listen 443 ssl;
-    server_name yourdomain.com;
+Both keys are stored encrypted in your local SQLite (`AES-256-GCM` keyed by your `MASTER_KEY`). They never leave the server except to call the two whitelisted hosts: `places.googleapis.com` and `api.apollo.io` (plus your own users' websites for enrichment, through an SSRF guard).
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+## Features
 
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
+### Search
+
+- **Maps**: keyword + location + radius + category, with filters (open now, min rating, price level, has phone/website/reviews).
+- **People**: name + company + role + location + industry, all combinable, all server-side filtered (no more silently-dropped industry filter).
+- **Live progress** via SSE, bound to your user ID. Two users on the same instance can't see each other's progress.
+
+### Grid that doesn't waste money
+
+- Starts with **one cell** covering the whole radius. Only **subdivides cells that hit Google's per-page cap**, up to 3 levels deep. On dense queries this can cut API calls by 30–60% vs. a blind N×N grid.
+- Uses `locationRestriction` (a hard rectangle), never the soft `locationBias` — so dedup waste stays low.
+- Per-cell errors are isolated. One failed cell is logged in the run summary; it never aborts a 500-result run.
+
+### Enrichment that fills the gaps
+
+When an Apollo lookup misses or a Maps result has only a website, Super Data Extractor:
+
+- Honors `robots.txt`.
+- Visits the homepage and `/contact` / `/about` family of paths.
+- Extracts `mailto:`, free-text emails (with noise filters for `noreply@`, etc.), `tel:`, and Instagram / Facebook / X / LinkedIn / YouTube / TikTok handles.
+- Routes every fetch through the SSRF guard (no probing localhost or `169.254.169.254`).
+- Per-domain serialized + delayed; doesn't hammer anyone.
+
+### Bulk jobs
+
+```http
+POST /api/jobs/bulk-maps
+Authorization: Bearer <token>      # or X-Api-Key: <api_key>
+
+{
+  "queries": [
+    { "searchTerm": "dentist", "location": "Mumbai 400001" },
+    { "searchTerm": "dentist", "location": "Mumbai 400002" }
+  ],
+  "maxResultsPerQuery": 100,
+  "enrich": true,
+  "includeHistoryDedup": true
 }
 ```
 
----
+Returns `{ jobId }`. Poll `GET /api/jobs/:id`. Cancel with `POST /api/jobs/:id/cancel`. Jobs are persisted in SQLite and **resume automatically** after a server restart.
 
-## 🔑 Google Maps API Key Setup (2026)
+### Public REST API
 
-> ⚠️ This app uses the **new** Google Places API (`places.googleapis.com/v1`). You must enable **Places API (New)** — the old Places API will not work.
+Make an API key in **Settings → API keys**, then:
 
-### Step-by-step (Google Cloud Console 2026)
+```bash
+curl -X POST https://your-host/api/v1/maps/search \
+  -H "X-Api-Key: sde_live_xxx" -H "Content-Type: application/json" \
+  -d '{"searchTerm":"coffee shop","location":"Brooklyn, NY","maxResults":120,"enrich":true}'
+```
 
-1. **Go to Google Cloud Console**
-   👉 [console.cloud.google.com](https://console.cloud.google.com)
+Endpoints:
 
-2. **Create or select a project**
-   - Click the project dropdown at the top → **New Project**
-   - Name it (e.g. `super-data-extractor`) → **Create**
+- `POST /api/v1/maps/search` — synchronous Maps search
+- `POST /api/v1/maps/cost-estimate` — pre-flight cost
+- `POST /api/v1/linkedin/search` — Apollo people search
+- `POST /api/v1/jobs/bulk-maps` — kick off a bulk job
+- `GET  /api/v1/jobs/:id` — job status
+- `GET  /api/v1/extractions` / `GET /api/v1/extractions/:id` — list & fetch results
+- `GET  /api/v1/me` — verify auth
 
-3. **Enable the APIs**
-   - Go to **APIs & Services → Library**
-   - Search for **"Places API (New)"** → Click it → **Enable**
-   - Also enable **"Places API"** (for autocomplete)
+Per-key rate limit: 60/minute (configurable).
 
-4. **Create an API key**
-   - Go to **APIs & Services → Credentials**
-   - Click **+ Create Credentials → API key**
-   - Copy the key
+### Webhooks
 
-5. **Restrict the API key** *(recommended)*
-   - Click on the key → **Edit**
-   - Under **API restrictions** → Select **Restrict key**
-   - Select: **Places API (New)**, **Places API**
-   - Under **Application restrictions** → **IP addresses** (add your server IP)
-   - Click **Save**
+Register a webhook URL in **Settings → Webhooks**. We POST every event with a body of `{event, payload, deliveredAt}` and a signature header:
 
-6. **Set up billing**
-   - Go to **Billing** → Link a billing account
-   - Google gives **$200 free credit per month** — enough for thousands of searches
-   - Each text search = ~₹1.43, each place detail = ~₹1.43
+```http
+X-SDE-Event: job.completed
+X-SDE-Signature: sha256=<hex-hmac>
+```
 
-7. **Add to the app**
-   - Open Super Data Extractor → **Settings**
-   - Paste your key in **Google Maps API Key** → **Save & Test**
+Verify with:
 
----
+```js
+const ok = crypto.createHmac('sha256', secret).update(rawBody).digest('hex') === sig;
+```
 
-## 🔑 LinkedIn via Apollo.io API
+Supported events: `job.completed`. (More on the way.)
 
-1. Sign up free at https://app.apollo.io
-2. Go to Settings → Integrations → API Keys
-3. Click 'Create new key'
-4. Copy your API key
-5. Paste in Super Data Extractor → Settings → Apollo.io API Key → Save & Test
+### Spend analytics
 
-> 💡 Free tier: 200 email credits/month, unlimited people search
+`GET /api/analytics/spend?days=30` returns daily cost, results, runs, and top categories — the data behind the dashboard. Numbers come straight from your `extractions` table; no third party sees them.
 
----
-
-## 🏗️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Node.js 18+ + Express 4 |
-| Frontend | Vanilla JS (ES6+), HTML5, CSS3 |
-| Database | SQLite via `better-sqlite3` |
-| Auth | `bcryptjs` + Bearer tokens |
-| Excel Export | SheetJS (`xlsx`) |
-| Maps Data | Google Places API (New) |
-| LinkedIn Data | Apollo.io REST API |
-| Process Manager | PM2 |
-
----
-
-## 📁 Project Structure
+## Architecture
 
 ```
 super-data-extractor/
-├── server.js              # Express backend + API proxy + auth
-├── database.js            # SQLite schema + all DB queries
-├── package.json
-├── public/
-│   ├── index.html         # Single-page app shell
-│   ├── css/styles.css     # Full responsive UI styles
-│   └── js/
-│       ├── app.js         # App bootstrap, routing, state
-│       ├── auth.js        # Login & register pages
-│       ├── googleMaps.js  # Google Maps extractor UI
-│       ├── linkedin.js    # LinkedIn extractor UI
-│       ├── export.js      # Excel/CSV export logic
-│       ├── api.js         # Authenticated API client
-│       ├── router.js      # Client-side hash router
-│       └── utils.js       # Shared utilities + localStorage
-└── data/
-    └── sde.db             # SQLite database (auto-created on first run)
+├── server.js              # ~130-line bootstrap
+├── database.js            # SQLite (better-sqlite3) — schema, migrations, all queries
+├── routes/                # HTTP routers (auth, maps, linkedin, history, settings, export, jobs, …)
+├── services/              # External API clients + business logic (places, apollo, enrichment, jobs, webhooks, exports)
+├── middleware/            # auth, rate-limit, errors, request-id
+├── lib/                   # Pure helpers: config, crypto (AES-256-GCM), ssrf, cost (SKU-aware), grid, progress, cache, …
+├── public/                # Vanilla JS frontend (no build step)
+├── tests/                 # Vitest: cost, grid, ssrf, crypto, csv-injection, email-extract, auth integration
+├── Dockerfile
+├── docker-compose.yml
+└── .github/workflows/ci.yml
 ```
 
----
+No build step on the frontend. No bundler. Open the file, read the code.
 
-## 💡 How Grid Search Works
+## Configuration
 
-Google Places API (New) returns a maximum of **20 results per call** with pagination up to ~60 total. To extract 100–500+ results, Super Data Extractor uses a **grid search strategy**:
+See [`.env.example`](.env.example) for the full list. The most important ones:
 
-1. The search area is divided into a grid of smaller circles (e.g. 3×3 = 9 zones)
-2. Each zone runs an independent search with a smaller radius
-3. All results are combined and **deduplicated by Place ID**
-4. Only unique results are returned — no duplicates, no wasted API credits
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP port |
+| `MASTER_KEY` | _(required)_ | 32-byte base64/hex key used to encrypt API keys at rest |
+| `ALLOWED_ORIGIN` | _(none)_ | Comma-separated CORS allowlist. Must be set in production. |
+| `USD_TO_INR` | `84` | FX rate for the cost meter; override or it will lie to you |
+| `DEFAULT_DAILY_INR_CEILING` | `0` (off) | Per-user daily INR limit; search refuses if estimate exceeds remaining headroom |
+| `RL_*` | _(see file)_ | Rate-limit knobs |
+| `ENRICHMENT_ENABLED` | `1` | Turn off the website scraper if you only want raw Google + Apollo |
+| `SSRF_ALLOW_PRIVATE` | `0` | Dev-only escape hatch for private intranets — do **not** flip in prod |
 
-This approach can extract **200–500+ unique businesses** from a single city search.
+If `MASTER_KEY` is missing, the server **refuses to start in production** (and warns loudly in dev). This is intentional.
 
----
+## Security
 
-## 🛡️ Security & Privacy
+- **SSRF**: every user-supplied URL goes through `lib/ssrf.js`, which DNS-resolves and rejects loopback / RFC1918 / link-local (incl. `169.254.169.254`) / ULA / CGNAT / multicast / non-`http(s)` / non-`80,443` ports. Redirects are followed manually and re-validated at every hop.
+- **Cross-user isolation**: progress sessions are bound to `userId` and indexed by server-generated UUIDs. Trying to subscribe to someone else's session returns `403`.
+- **API keys at rest**: AES-256-GCM with per-row IVs and auth tags. Existing plaintext keys are migrated on first start.
+- **Bearer tokens**: stored hashed (SHA-256) in SQLite. A DB read does not grant impersonation.
+- **CSV / XLSX injection**: every cell starting with `=`, `+`, `-`, `@`, or other dangerous chars is prefixed with `'` before export.
+- **Rate limits**: login (5 / 15min / IP), register (3 / hour / IP), search (30 / hour / user), validate-key (60 / hour / user), v1 API (60 / min / key). All configurable.
+- **CORS**: deny by default; opt-in via `ALLOWED_ORIGIN`.
+- **helmet**: CSP (`'self'`-only scripts), HSTS in prod-with-HTTPS, frame-ancestors `'none'`.
+- **No telemetry. No analytics pixels.** The only outbound destinations from the server are `places.googleapis.com`, `api.apollo.io`, and (with enrichment on) the websites your search results pointed to.
 
-- 🔐 Passwords hashed with bcrypt (never stored in plain text)
-- 🔑 API keys stored in your own SQLite database (never sent to third parties)
-- 🌐 All Google Maps API calls are proxied server-side (keys never exposed to browser)
-- 🚫 No external analytics, no tracking, no telemetry
-- 🔒 Session tokens expire after 30 days
+For a deeper rundown of policy and threat model, see [`.kiro/steering/security.md`](.kiro/steering/security.md).
 
----
+## Tests
 
-## 🤝 Contributing
+```bash
+npm test          # one-shot
+npm run test:watch
+```
 
-Pull requests are welcome! For major changes, please open an issue first.
+Suites: cost (SKU tiers, no doubled details), grid (rectangle math, density-aware subdivision), SSRF (every rejection class), crypto (encrypt/decrypt round-trip + ciphertext detection), CSV injection defang, email extraction, and an `auth integration` test exercising register → me → logout against the real Express app.
 
-1. Fork the repo
-2. Create your branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'feat: add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+CI (GitHub Actions) runs lint + format check + tests on Node 18, 20, 22, plus a Docker build. PRs are blocked on red.
 
----
+## Roadmap
 
-## 📄 License
+Tier-by-tier in [`.kiro/steering/roadmap.md`](.kiro/steering/roadmap.md). Highlights of what's already in v2.0:
 
-MIT © [Broodle](https://broodle.in)
+- ✅ Tier 1 — cost & correctness (no more doubled API calls, real SKU-aware meter, density-aware grid, per-cell error isolation, persisted geocode cache, "fresh results only" toggle, fixed Apollo industry filter)
+- ✅ Tier 2 — security (SSRF guard, user-bound sessions, helmet, rate limits, AES-256-GCM key encryption, dotenv wired, exceljs replaces vulnerable xlsx, CSV/XLSX injection defang)
+- ✅ Tier 3 — differentiators (email/contact enrichment, bulk jobs with resume-on-restart, public REST API, HMAC-signed webhooks, spend analytics)
+- ✅ Tier 4 — DX (modular layout, Vitest, Docker + compose, ESLint + Prettier, GitHub Actions CI, schema_migrations system, structured logging via pino + pino-http with request IDs)
 
----
+Open: scheduled saved searches with email diff, team workspaces with roles, persistent column mapping, argon2id rolling rehash.
 
-## ⭐ Star this repo if it helped you!
+## License
 
-If Super Data Extractor saved you time, give it a ⭐ — it helps others find it too.
+MIT. See [LICENSE](LICENSE).
+
+## Contributing
+
+PRs welcome. Read [`.kiro/steering/conventions.md`](.kiro/steering/conventions.md) and the rest of the steering docs first — they describe the rules of the road (route shape, error handling, logging, testing, dependency policy).
+
+If you're filing a bug:
+
+1. Tell us your Node version, OS, and whether you're running via Docker or `npm start`.
+2. Include the request ID from the response (every error response carries one).
+3. If it's a security report, please email instead of opening a public issue.

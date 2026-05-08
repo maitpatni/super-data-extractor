@@ -1,0 +1,24 @@
+services:
+  app:
+    build: .
+    image: super-data-extractor:latest
+    container_name: sde
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - sde-data:/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(''http://localhost:3000/api/health'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  sde-data:
